@@ -1,68 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PulseEngineTest - Menu</title>
+<title>Pulse Engine</title>
 
 <style>
+@font-face {
+    font-family: main;
+    src: url("data/fonts/main.ttf");
+}
+
 body {
-  margin: 0;
-  overflow: hidden;
-  background: #000;
-  font-family: sans-serif;
-  color: white;
+    margin: 0;
+    background: black;
+    overflow: hidden;
+    font-family: main;
 }
 
 #bg {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(#222, #000);
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: url("images/menus/menubg.png") center/cover no-repeat;
+    filter: brightness(0.7);
 }
 
 #logo {
-  position: absolute;
-  width: 520px;
-  left: 50%;
-  top: 15%;
-  transform: translateX(-50%);
-  animation: bob 2s ease-in-out infinite;
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 500px;
+    image-rendering: pixelated;
+    animation: bump 1.2s infinite;
 }
 
-@keyframes bob {
-  0%,100% { transform: translate(-50%, 0px); }
-  50% { transform: translate(-50%, 20px); }
+@keyframes bump {
+    0% { transform: translateX(-50%) scale(1); }
+    50% { transform: translateX(-50%) scale(1.05); }
+    100% { transform: translateX(-50%) scale(1); }
 }
 
-#menu {
-  position: absolute;
-  bottom: 120px;
-  width: 100%;
-  text-align: center;
-  font-size: 28px;
+#play {
+    position: absolute;
+    bottom: 15%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 40px;
+    color: white;
+    cursor: pointer;
+    user-select: none;
 }
 
-.option {
-  margin: 10px;
-  cursor: pointer;
-  user-select: none;
+#play:hover {
+    transform: translateX(-50%) scale(1.1);
 }
 </style>
-
 </head>
 
 <body>
 
 <div id="bg"></div>
+
 <img id="logo" src="images/menus/logoBumpin.png">
 
-<div id="menu">
-  <div class="option" onclick="playSong()">▶ Play Bopeebo</div>
-</div>
+<div id="play" onclick="startGame()">PLAY</div>
 
 <script>
-function playSong() {
-  window.location.href = "game.html?song=bopeebo";
+function startGame() {
+    window.location.href = "game.html";
 }
 </script>
 

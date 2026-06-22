@@ -1,88 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>pulseengine</title>
+<title>Pulse Engine - Game</title>
 
 <style>
 @font-face {
-  font-family: "main";
-  src: url("data/fonts/main.ttf");
+    font-family: main;
+    src: url("data/fonts/main.ttf");
 }
 
 body {
-  margin: 0;
-  overflow: hidden;
-  background: black;
-  font-family: "main";
-  color: white;
+    margin: 0;
+    background: black;
+    overflow: hidden;
+    font-family: main;
 }
 
 /* STAGE */
 #stage {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  background: #111;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: url("images/game/stages/stage/stageback.png") center/cover;
 }
 
-/* LOGO BUMP */
-#logo {
-  position: absolute;
-  left: 50%;
-  top: 70px;
-  transform: translateX(-50%);
-  font-size: 42px;
-  animation: bump 1s infinite;
+/* SIMPLE HUD */
+#hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-size: 20px;
 }
 
-@keyframes bump {
-  0% { transform: translateX(-50%) scale(1); }
-  50% { transform: translateX(-50%) scale(1.1); }
-  100% { transform: translateX(-50%) scale(1); }
+/* NOTE AREA */
+#notes {
+    position: absolute;
+    bottom: 120px;
+    width: 100%;
+    text-align: center;
 }
 
-/* STRUMS */
-.strum {
-  position: absolute;
-  width: 64px;
-  height: 64px;
-  background: gray;
-  bottom: 80px;
-}
-
-/* NOTES */
 .note {
-  position: absolute;
-  width: 64px;
-  height: 64px;
-  background: white;
-}
-
-/* UI */
-#ui {
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  font-size: 14px;
-  text-transform: lowercase;
-}
-
-/* HEALTH */
-#healthBar {
-  position: absolute;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 400px;
-  height: 10px;
-  background: #222;
-}
-
-#healthFill {
-  width: 50%;
-  height: 100%;
-  background: lime;
+    display: inline-block;
+    width: 60px;
+    height: 60px;
+    margin: 10px;
+    background: white;
+    opacity: 0.8;
 }
 </style>
 </head>
@@ -90,167 +56,58 @@ body {
 <body>
 
 <div id="stage"></div>
-<div id="logo">pulse engine</div>
 
-<div id="ui">
-score: <span id="score">0</span><br>
-combo: <span id="combo">0</span><br>
-state: play
+<div id="hud">
+    Pulse Engine Prototype<br>
+    Time: <span id="time">0</span>
 </div>
 
-<div id="healthBar"><div id="healthFill"></div></div>
+<div id="notes">
+    <div class="note"></div>
+    <div class="note"></div>
+    <div class="note"></div>
+    <div class="note"></div>
+</div>
 
 <audio id="inst" src="audio/songs/Inst.ogg"></audio>
 
 <script>
-// =========================
-// 🎵 AUDIO
-// =========================
-const audio = document.getElementById("inst");
+// ===== BASIC STATE =====
+let time = 0;
+let started = false;
 
-// =========================
-// 🎮 STATE
-// =========================
-let notes = [];
-let combo = 0;
-let score = 0;
-let startTime = 0;
+// ===== LOAD MUSIC =====
+const inst = document.getElementById("inst");
 
-// =========================
-// 🎯 CONFIG
-// =========================
-const SPEED = 0.6;
-const STRUM_Y = window.innerHeight - 80;
+// ===== START SONG =====
+function startSong() {
+    inst.play();
+    started = true;
+}
 
-// =========================
-// 🚀 START SAFE
-// =========================
+// auto start after load
 window.onload = () => {
-  init();
+    setTimeout(startSong, 500);
 };
 
-function init() {
-  createStrums();
-  loadChart();
-
-  audio.play().catch(()=>{});
-
-  startTime = performance.now();
-
-  loop();
-}
-
-// =========================
-// 🎯 STRUMS (VISIBLE FIX)
-// =========================
-function createStrums() {
-  for (let i = 0; i < 4; i++) {
-    const s = document.createElement("div");
-    s.className = "strum";
-    s.style.left = (300 + i * 80) + "px";
-    s.style.bottom = "80px";
-    document.body.appendChild(s);
-  }
-}
-
-// =========================
-// 🎵 FULL CHART (NO CUT FUNCTION)
-// =========================
-function loadChart() {
-  const step = 600;
-
-  for (let i = 0; i < 80; i++) {
-    notes.push({
-      time: i * step,
-      lane: i % 4,
-      hit: false,
-      el: createNote(i % 4)
-    });
-  }
-}
-
-// =========================
-// 🎯 NOTE CREATION (FIXED VISIBILITY)
-// =========================
-function createNote(lane) {
-  const n = document.createElement("div");
-  n.className = "note";
-  n.style.left = (300 + lane * 80) + "px";
-  n.style.top = "-100px";
-  document.body.appendChild(n);
-  return n;
-}
-
-// =========================
-// 🎯 HIT SYSTEM (SAFE)
-// =========================
-function hit(lane) {
-  for (let n of notes) {
-    if (n.hit) continue;
-    if (n.lane !== lane) continue;
-
-    const time = getTime();
-    const diff = Math.abs(n.time - time);
-
-    if (diff < 150) {
-      n.hit = true;
-      combo++;
-      score += 200;
-      n.el.style.opacity = 0;
-      updateUI();
-      return;
-    }
-  }
-
-  combo = 0;
-  updateUI();
-}
-
-// =========================
-// ⏱ TIME SYSTEM
-// =========================
-function getTime() {
-  return performance.now() - startTime;
-}
-
-// =========================
-// 🎮 INPUT
-// =========================
-document.addEventListener("keydown", e => {
-  const map = { d:0, f:1, j:2, k:3 };
-  if (map[e.key] !== undefined) hit(map[e.key]);
-});
-
-// =========================
-// 📊 UI
-// =========================
-function updateUI() {
-  document.getElementById("score").innerText = score;
-  document.getElementById("combo").innerText = combo;
-}
-
-// =========================
-// 🎮 LOOP (DOWNSCROLL FIXED)
-// =========================
+// ===== GAME LOOP =====
 function loop() {
-  const time = getTime();
-
-  for (let n of notes) {
-    if (n.hit) continue;
-
-    const y = (time - n.time) * SPEED + STRUM_Y - 400;
-
-    n.el.style.top = y + "px";
-
-    if (y > window.innerHeight + 100) {
-      n.hit = true;
-      combo = 0;
-      updateUI();
+    if (started) {
+        time += 1/60;
+        document.getElementById("time").innerText = time.toFixed(2);
     }
-  }
-
-  requestAnimationFrame(loop);
+    requestAnimationFrame(loop);
 }
+loop();
+
+// ===== INPUTS (DFJK + ARROWS) =====
+document.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+
+    if (["d","f","j","k","arrowleft","arrowdown","arrowup","arrowright"].includes(key)) {
+        console.log("Hit:", key);
+    }
+});
 </script>
 
 </body>
