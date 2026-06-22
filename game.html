@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>PulseEngineTest - Game</title>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: black;
+}
+
+#stage {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+}
+
+.note {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  background: cyan;
+  top: -60px;
+  border-radius: 6px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="stage"></div>
+
+<script>
+// ===============================
+// 🎮 SONG SELECT
+// ===============================
+const params = new URLSearchParams(window.location.search);
+const song = params.get("song") || "bopeebo";
+
+// ===============================
+// 🧠 ENGINE STATE
+// ===============================
+let rawChart;
+let flatNotes = [];
+let notes = [];
+let startTime = 0;
+
+// ===============================
+// 🎵 AUDIO (YOUR STRUCTURE)
+// ===============================
+const inst = new Audio("audio/songs/Inst.ogg");
+const voicesOpp = new Audio("audio/songs/Voices-Opponent.ogg");
+const voicesPlayer = new Audio("audio/songs/Voices-Player.ogg");
+
+// ===============================
+// 🌄 STAGE LOAD (optional)
+// ===============================
+async function loadStage() {
+  try {
+    const res = await fetch("data/stages/stage.json");
+    const stage = await res.json();
+
+    if (stage.background) {
+      document.getElementById("stage").style.backgroundImage =
+        `url(${stage.background})`;
+    }
+  } catch (e) {
+    console.log("No stage loaded");
+  }
+}
+
+// ===============================
+// 📊 PSYCH CHART PARSER (REAL 1.0.4)
+// ===============================
+async function loadChart() {
+  const res = await fetch(`data/charts/${song}.json`);
+  rawChart = await res.json();
+
+  flatNotes = [];
+
+  const sections = rawChart.song.notes;
+
+  for (let section of sections) {
+
+    if (!section.sectionNotes) continue;
+
+    for (let note of section.sectionNotes) {
+
+      // Psych format:
+      // [time, id, length]
+      const time = note[0];
+      const id = note[1];
+      const length = note[2];
+
+      flatNotes.push({
+        time: time,
+        lane: id,
+        length: length,
+        spawned: false
+      });
+    }
+  }
+
+  console.log("Psych notes loaded:", flatNotes);
+}
+
+// ===============================
+// 🎯 SPAWN NOTE
+// ===============================
+function spawnNote(n) {
+  const el = document.createElement("div");
+  el.className = "note";
+
+  el.style.left = (n.lane * 80 + 300) + "px";
+
+  document.body.appendChild(el);
+
+  notes.push({
+    el: el,
+    y: -60
+  });
+}
+
+// ===============================
+// ⏱ GAME LOOP
+// ===============================
+function update() {
+  const time = performance.now() - startTime;
+
+  for (let n of flatNotes) {
+    if (!n.spawned && time >= n.time) {
+      spawnNote(n);
+      n.spawned = true;
+    }
+  }
+
+  for (let i = 0; i < notes.length; i++) {
+    notes[i].y += 6;
+    notes[i].el.style.top = notes[i].y + "px";
+  }
+
+  requestAnimationFrame(update);
+}
+
+// ===============================
+// 🚀 START GAME
+// ===============================
+async function start() {
+  await loadStage();
+  await loadChart();
+
+  inst.play();
+  voicesOpp.play();
+  voicesPlayer.play();
+
+  startTime = performance.now();
+
+  update();
+}
+
+start();
+</script>
+
+</body>
+</html>
