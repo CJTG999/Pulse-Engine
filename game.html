@@ -2,31 +2,53 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>PulseEngine - FULL Psych Audio Sync</title>
+<title>pulseengine</title>
 
 <style>
+@font-face {
+  font-family: "main";
+  src: url("data/fonts/main.ttf");
+}
+
 body {
   margin: 0;
   overflow: hidden;
   background: black;
-  font-family: sans-serif;
-}
-
-/* CAMERA */
-#camera {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  transform-origin: center;
+  font-family: "main";
+  color: white;
 }
 
 /* STAGE */
 #stage {
   position: absolute;
-  width: 120%;
-  height: 120%;
-  left: -10%;
-  top: -10%;
+  width: 100%;
+  height: 100%;
+  background: #111;
+}
+
+/* LOGO BUMP */
+#logo {
+  position: absolute;
+  left: 50%;
+  top: 70px;
+  transform: translateX(-50%);
+  font-size: 42px;
+  animation: bump 1s infinite;
+}
+
+@keyframes bump {
+  0% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.1); }
+  100% { transform: translateX(-50%) scale(1); }
+}
+
+/* STRUMS */
+.strum {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  background: gray;
+  bottom: 80px;
 }
 
 /* NOTES */
@@ -37,267 +59,198 @@ body {
   background: white;
 }
 
-/* STRUM */
-.strum {
-  position: absolute;
-  top: 420px;
-  width: 64px;
-  height: 64px;
-  background: gray;
-}
-
-/* SPLASH */
-.splash {
-  position: absolute;
-  width: 100px;
-  height: 100px;
-  background: yellow;
-  opacity: 0.8;
-  animation: pop 0.25s forwards;
-}
-
-@keyframes pop {
-  to { transform: scale(1.5); opacity: 0; }
-}
-
 /* UI */
 #ui {
   position: absolute;
   left: 10px;
   top: 10px;
-  color: white;
+  font-size: 14px;
+  text-transform: lowercase;
 }
 
-/* EDITOR */
-#editor {
+/* HEALTH */
+#healthBar {
   position: absolute;
   bottom: 10px;
-  right: 10px;
-  color: white;
-  display: none;
-  background: #000a;
-  padding: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  height: 10px;
+  background: #222;
+}
+
+#healthFill {
+  width: 50%;
+  height: 100%;
+  background: lime;
 }
 </style>
 </head>
 
 <body>
 
-<div id="camera">
-  <div id="stage"></div>
-</div>
+<div id="stage"></div>
+<div id="logo">pulse engine</div>
 
 <div id="ui">
-Score: <span id="score">0</span><br>
-Combo: <span id="combo">0</span><br>
-Mode: <span id="mode">PLAY</span>
+score: <span id="score">0</span><br>
+combo: <span id="combo">0</span><br>
+state: play
 </div>
 
-<div id="editor">
-EDITOR MODE<br>
-Click = place note<br>
-Press Q = export JSON
-</div>
+<div id="healthBar"><div id="healthFill"></div></div>
 
 <audio id="inst" src="audio/songs/Inst.ogg"></audio>
 
 <script>
-// =====================================================
-// 🎵 AUDIO SYNC CORE (REAL PSYCH STYLE)
-// =====================================================
+// =========================
+// 🎵 AUDIO
+// =========================
 const audio = document.getElementById("inst");
 
-let songStartTime = 0;
-let audioOffset = 0;
-
-// =====================================================
+// =========================
 // 🎮 STATE
-// =====================================================
+// =========================
 let notes = [];
 let combo = 0;
 let score = 0;
+let startTime = 0;
 
-let editorMode = false;
+// =========================
+// 🎯 CONFIG
+// =========================
+const SPEED = 0.6;
+const STRUM_Y = window.innerHeight - 80;
 
-// =====================================================
-// 🎯 CAMERA
-// =====================================================
-let camX = 0, camY = 0;
-let targetX = 0;
-
-// =====================================================
-// 🎵 CHART (PSYCH STYLE)
-// =====================================================
-let chart = {
-  song: {
-    bpm: 100,
-    notes: []
-  }
+// =========================
+// 🚀 START SAFE
+// =========================
+window.onload = () => {
+  init();
 };
 
-// =====================================================
-// 🎯 AUDIO TIME (CRITICAL FIX)
-// =====================================================
-function getSongTime() {
-  return (audio.currentTime * 1000) + audioOffset;
+function init() {
+  createStrums();
+  loadChart();
+
+  audio.play().catch(()=>{});
+
+  startTime = performance.now();
+
+  loop();
 }
 
-// =====================================================
-// 🎯 SPAWN NOTE
-// =====================================================
-function spawnNote(time, lane) {
-  notes.push({
-    time,
-    lane,
-    hit:false,
-    el:null
-  });
-}
-
-// =====================================================
-// 🎯 LOAD DEMO CHART
-// =====================================================
-function loadChart() {
-  for (let i = 0; i < 120; i++) {
-    spawnNote(i * 600, i % 4);
+// =========================
+// 🎯 STRUMS (VISIBLE FIX)
+// =========================
+function createStrums() {
+  for (let i = 0; i < 4; i++) {
+    const s = document.createElement("div");
+    s.className = "strum";
+    s.style.left = (300 + i * 80) + "px";
+    s.style.bottom = "80px";
+    document.body.appendChild(s);
   }
 }
 
-// =====================================================
-// 🎮 HIT DETECTION (AUDIO SYNCED)
-// =====================================================
+// =========================
+// 🎵 FULL CHART (NO CUT FUNCTION)
+// =========================
+function loadChart() {
+  const step = 600;
+
+  for (let i = 0; i < 80; i++) {
+    notes.push({
+      time: i * step,
+      lane: i % 4,
+      hit: false,
+      el: createNote(i % 4)
+    });
+  }
+}
+
+// =========================
+// 🎯 NOTE CREATION (FIXED VISIBILITY)
+// =========================
+function createNote(lane) {
+  const n = document.createElement("div");
+  n.className = "note";
+  n.style.left = (300 + lane * 80) + "px";
+  n.style.top = "-100px";
+  document.body.appendChild(n);
+  return n;
+}
+
+// =========================
+// 🎯 HIT SYSTEM (SAFE)
+// =========================
 function hit(lane) {
-  const now = getSongTime();
-
-  let best = null;
-  let bestDiff = 9999;
-
   for (let n of notes) {
-    if (n.hit || n.lane !== lane) continue;
+    if (n.hit) continue;
+    if (n.lane !== lane) continue;
 
-    const diff = Math.abs(now - n.time);
-    if (diff < 120 && diff < bestDiff) {
-      best = n;
-      bestDiff = diff;
+    const time = getTime();
+    const diff = Math.abs(n.time - time);
+
+    if (diff < 150) {
+      n.hit = true;
+      combo++;
+      score += 200;
+      n.el.style.opacity = 0;
+      updateUI();
+      return;
     }
   }
 
-  if (!best) {
-    combo = 0;
-    return;
-  }
-
-  best.hit = true;
-  combo++;
-  score += 200;
-
-  splash(lane);
+  combo = 0;
   updateUI();
 }
 
-// =====================================================
-// 🎯 SPLASH
-// =====================================================
-function splash(lane) {
-  const s = document.createElement("div");
-  s.className = "splash";
-  s.style.left = (300 + lane * 80) + "px";
-  s.style.top = "420px";
-  document.body.appendChild(s);
-
-  setTimeout(() => s.remove(), 250);
+// =========================
+// ⏱ TIME SYSTEM
+// =========================
+function getTime() {
+  return performance.now() - startTime;
 }
 
-// =====================================================
+// =========================
 // 🎮 INPUT
-// =====================================================
+// =========================
 document.addEventListener("keydown", e => {
-
   const map = { d:0, f:1, j:2, k:3 };
-
-  if (map[e.key] !== undefined) {
-    hit(map[e.key]);
-  }
-
-  // EDITOR TOGGLE
-  if (e.key === "e") {
-    editorMode = !editorMode;
-    document.getElementById("editor").style.display =
-      editorMode ? "block" : "none";
-
-    document.getElementById("mode").innerText =
-      editorMode ? "EDITOR" : "PLAY";
-  }
-
-  // EXPORT
-  if (e.key === "q" && editorMode) {
-    console.log(JSON.stringify(chart, null, 2));
-    alert("Chart exported to console");
-  }
+  if (map[e.key] !== undefined) hit(map[e.key]);
 });
 
-// =====================================================
-// 🧠 EDITOR CLICK PLACEMENT
-// =====================================================
-document.addEventListener("click", e => {
-  if (!editorMode) return;
-
-  const lane = Math.floor((e.clientX - 300) / 80);
-
-  const time = getSongTime() + 2000;
-
-  spawnNote(time, lane);
-  chart.song.notes.push([time, lane, 0]);
-});
-
-// =====================================================
+// =========================
 // 📊 UI
-// =====================================================
+// =========================
 function updateUI() {
   document.getElementById("score").innerText = score;
   document.getElementById("combo").innerText = combo;
 }
 
-// =====================================================
-// 🎵 AUDIO SYNC START
-// =====================================================
-function startSong() {
-  audio.play();
-  songStartTime = performance.now();
-}
-
-// =====================================================
-// ⏱ GAME LOOP (AUDIO LOCKED)
-// =====================================================
+// =========================
+// 🎮 LOOP (DOWNSCROLL FIXED)
+// =========================
 function loop() {
+  const time = getTime();
 
-  const now = getSongTime();
-
-  // update notes
   for (let n of notes) {
     if (n.hit) continue;
 
-    if (now > n.time + 150) {
+    const y = (time - n.time) * SPEED + STRUM_Y - 400;
+
+    n.el.style.top = y + "px";
+
+    if (y > window.innerHeight + 100) {
       n.hit = true;
       combo = 0;
+      updateUI();
     }
   }
 
-  updateUI();
-
   requestAnimationFrame(loop);
 }
-
-// =====================================================
-// 🚀 START
-// =====================================================
-function start() {
-  loadChart();
-  startSong();
-  loop();
-}
-
-start();
 </script>
 
 </body>
