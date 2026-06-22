@@ -2,112 +2,195 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Pulse Engine - Game</title>
+<title>Pulse Engine</title>
 
 <style>
-@font-face {
-    font-family: main;
-    src: url("data/fonts/main.ttf");
-}
-
 body {
     margin: 0;
-    background: black;
     overflow: hidden;
-    font-family: main;
+    background: black;
 }
 
-/* STAGE */
-#stage {
+canvas {
     position: absolute;
     width: 100%;
     height: 100%;
-    background: url("images/game/stages/stage/stageback.png") center/cover;
-}
-
-/* SIMPLE HUD */
-#hud {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    color: white;
-    font-size: 20px;
-}
-
-/* NOTE AREA */
-#notes {
-    position: absolute;
-    bottom: 120px;
-    width: 100%;
-    text-align: center;
-}
-
-.note {
-    display: inline-block;
-    width: 60px;
-    height: 60px;
-    margin: 10px;
-    background: white;
-    opacity: 0.8;
 }
 </style>
 </head>
 
 <body>
 
-<div id="stage"></div>
-
-<div id="hud">
-    Pulse Engine Prototype<br>
-    Time: <span id="time">0</span>
-</div>
-
-<div id="notes">
-    <div class="note"></div>
-    <div class="note"></div>
-    <div class="note"></div>
-    <div class="note"></div>
-</div>
+<canvas id="c"></canvas>
 
 <audio id="inst" src="audio/songs/Inst.ogg"></audio>
+<audio id="voxP" src="audio/songs/Voices-Player.ogg"></audio>
+<audio id="voxO" src="audio/songs/Voices-Opponent.ogg"></audio>
 
 <script>
-// ===== BASIC STATE =====
-let time = 0;
-let started = false;
+// ===============================
+// CANVAS
+// ===============================
+const c = document.getElementById("c");
+const ctx = c.getContext("2d");
+c.width = innerWidth;
+c.height = innerHeight;
 
-// ===== LOAD MUSIC =====
+// ===============================
+// AUDIO
+// ===============================
 const inst = document.getElementById("inst");
+const voxP = document.getElementById("voxP");
+const voxO = document.getElementById("voxO");
 
-// ===== START SONG =====
-function startSong() {
+// ===============================
+// GLOBAL STATE
+// ===============================
+let started = false;
+let time = 0;
+
+// ===============================
+// LOAD ALL ASSETS (REGISTRY SYSTEM)
+// ===============================
+function img(src) {
+    const i = new Image();
+    i.src = src;
+    return i;
+}
+
+// MENU
+const menubg = img("images/menus/menubg.png");
+const logo = img("images/menus/logoBumpin.png");
+
+// STAGE
+const stageBack = img("images/game/stages/stage/stageback.png");
+const stageFront = img("images/game/stages/stage/stagefront.png");
+const curtains = img("images/game/stages/stage/stagecurtains.png");
+const light = img("images/game/stages/stage/stage_light.png");
+
+// NOTES
+const arrows = img("images/game/notes/arrows.png");
+const splashes = img("images/game/notes/splashes.png");
+
+// CHARACTERS
+const bf = img("data/characters/bf/bf.png");
+const dad = img("data/characters/dad/dad.png");
+
+// ===============================
+// CHART
+// ===============================
+let chart = null;
+let notes = [];
+
+fetch("data/charts/bopeebo.json")
+.then(r => r.json())
+.then(d => {
+    chart = d;
+    notes = d.notes || [];
+});
+
+// ===============================
+// INPUT
+// ===============================
+const keys = {};
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+// ===============================
+// START
+// ===============================
+function start() {
     inst.play();
+    voxP.play();
+    voxO.play();
     started = true;
 }
 
-// auto start after load
-window.onload = () => {
-    setTimeout(startSong, 500);
-};
+setTimeout(start, 500);
 
-// ===== GAME LOOP =====
-function loop() {
-    if (started) {
-        time += 1/60;
-        document.getElementById("time").innerText = time.toFixed(2);
+// ===============================
+// LOGO BOP (REAL FNF STYLE)
+// ===============================
+function bop(t) {
+    return 1 + Math.sin(t * 6) * 0.05;
+}
+
+// ===============================
+// UPDATE
+// ===============================
+function update(dt) {
+    if (!started) return;
+    time = inst.currentTime;
+}
+
+// ===============================
+// DRAW HELPERS
+// ===============================
+function drawSprite(img, x, y, s=1) {
+    if (!img.complete) return;
+    ctx.drawImage(img, x, y, img.width*s, img.height*s);
+}
+
+// ===============================
+// DRAW GAME
+// ===============================
+function draw() {
+    ctx.clearRect(0,0,c.width,c.height);
+
+    // STAGE
+    drawSprite(stageBack, 0, 0, c.width / stageBack.width);
+    drawSprite(light, 0, 0, c.width / light.width);
+
+    // DAD (left)
+    drawSprite(dad, 200, 300, 1);
+
+    // BF (right)
+    drawSprite(bf, c.width - 400, 300, 1);
+
+    // CURTAINS FRONT
+    drawSprite(curtains, 0, 0, c.width / curtains.width);
+
+    // LOGO (bop)
+    let scale = bop(time);
+    if (logo.complete) {
+        ctx.drawImage(
+            logo,
+            c.width/2 - (logo.width*scale)/2,
+            50,
+            logo.width*scale,
+            logo.height*scale
+        );
     }
+
+    // NOTES
+    if (chart) {
+        for (let n of notes) {
+            let laneX = c.width/2 + (n.lane - 2) * 90;
+            let y = 200 + (n.time - time) * 400;
+
+            if (y > -100 && y < c.height+100) {
+                drawSprite(arrows, laneX, y, 1);
+            }
+        }
+    }
+
+    // DEBUG HUD
+    ctx.fillStyle = "white";
+    ctx.font = "20px Arial";
+    ctx.fillText("Pulse Engine v0.1", 20, 30);
+    ctx.fillText("Time: " + time.toFixed(2), 20, 60);
+}
+
+// ===============================
+// LOOP
+// ===============================
+function loop() {
+    update();
+    draw();
     requestAnimationFrame(loop);
 }
 loop();
 
-// ===== INPUTS (DFJK + ARROWS) =====
-document.addEventListener("keydown", (e) => {
-    const key = e.key.toLowerCase();
-
-    if (["d","f","j","k","arrowleft","arrowdown","arrowup","arrowright"].includes(key)) {
-        console.log("Hit:", key);
-    }
-});
 </script>
 
 </body>
