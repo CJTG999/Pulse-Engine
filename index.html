@@ -7,7 +7,7 @@
     <style>
         @font-face {
             font-family: 'Phantommuff';
-            src: url('fonts/main.ttf') format('truetype');
+            src: url('https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/fonts/vcr.ttf') format('truetype');
         }
 
         body {
@@ -39,162 +39,168 @@ const ctx = canvas.getContext('2d');
 const STATES = { INTRO: 0, TITLE_SCREEN: 1 };
 let currentState = STATES.INTRO;
 
-// --- AUDIO/BPM TIMING ---
-const BPM = 102; // Standard FNF title track BPM
-const beatInterval = (60 / BPM) * 1000; // ms per beat
-let lastBeatTime = 0;
-let beatCount = 0;
+// --- AUDIO/BPM TIMING (Fixed at 120 BPM for 0.5s beats) ---
+const BPM = 120; 
+const beatInterval = (60 / BPM) * 1000; // Exactly 500ms per beat
+let startTime = null;
 
-// --- INTRO TEXT SEQUENCE DATA ---
+// --- DETERMINING EASTER EGG (25% CHANCE) ---
+const isEasterEgg = Math.random() < 0.25;
+const finalTitleDrop = isEasterEgg ? ["USE", "DFJK", "LOL"] : ["FNF", "PULSE", "ENGINE"];
+
+// --- CUSTOM TIME TIMELINE ---
+// Based on: 1.75s line delay (3.5 beats), 0.5s section delay (1 beat), 0.5s drop delay (1 beat)
 const introSequences = [
-    // Beat 1-4: Creator
-    { startBeat: 1, text: ["Created By", "CJTG999"], image: null },
-    { startBeat: 3, text: ["Created By", "CJTG999"], image: null }, // keeps it on screen
+    // --- SECTION 1 ---
+    { beat: 1.0, text: ["Created By"], image: null },
+    { beat: 4.5, text: ["Created By", "CJTG999"], image: null }, // +1.75s (3.5 beats)
     
-    // Beat 5-8: Newgrounds Disclaimer
-    { startBeat: 5, text: ["In partnership with", "nobody lmao"], image: null },
-    { startBeat: 7, text: ["Not associated with", "Newgrounds"], image: 'newgrounds' },
+    // Clear screen: 1 beat pause (0.5s) after Section 1 finishes at beat 5.5
+    { beat: 6.5, text: [], image: null }, 
+
+    // --- SECTION 2 ---
+    { beat: 7.5, text: ["Not Associated With"], image: null },
+    { beat: 11.0, text: ["Not Associated With", "Newgrounds"], image: 'newgrounds' }, // +1.75s (3.5 beats)
     
-    // Beat 9-12: Random Shoutouts / Funny lines
-    { startBeat: 9, text: ["Shoutout to", "all the web devs"], image: null },
-    { startBeat: 11, text: ["Pure HTML", "No Haxe in sight"], image: null },
+    // Clear screen: 1 beat pause (0.5s) after Section 2 finishes at beat 12.0
+    { beat: 13.0, text: [], image: null },
+
+    // --- SECTION 3 ---
+    { beat: 14.0, text: ["Pure HTML"], image: null },
+    { beat: 17.5, text: ["Pure HTML", "No Haxe in sight"], image: null }, // +1.75s (3.5 beats)
     
-    // Beat 13-16: Title Drop
-    { startBeat: 13, text: ["Friday", "Night"], image: null },
-    { startBeat: 14, text: ["Friday", "Night", "Funkin"], image: null },
-    { startBeat: 15, text: ["FNF", "Pulse", "Engine"], image: null }
+    // Clear screen: 1 beat pause (0.5s) after Section 3 finishes at beat 18.5
+    { beat: 19.5, text: [], image: null },
+
+    // --- SECTION 4: TITLE DROP --- (0.5s / 1 beat pacing)
+    { beat: 20.5, text: [finalTitleDrop[0]], image: null },
+    { beat: 21.5, text: [finalTitleDrop[0], finalTitleDrop[1]], image: null },
+    { beat: 22.5, text: [finalTitleDrop[0], finalTitleDrop[1], finalTitleDrop[2]], image: null }
 ];
+
+// Screen auto-transitions to Title Screen 1.5 seconds after final text drops
+const TRANSITION_BEAT = 25.5; 
 
 let currentIntroText = [];
 let currentIntroImage = null;
+let lastExecutedBeat = 0;
 
 // --- VISUAL VARIABLES ---
 let logoScale = 1.0;
 let dareBgOffset = 0;
-const DARE_BG_SPEED = 2; // Speed of the sliding background strips
+const DARE_BG_SPEED = 2; 
 
 // --- ASSET LOADING ---
 const assets = {
     fontLoaded: false,
     ngImage: new Image(),
     logoImage: new Image(),
-    bgImage: new Image() // The Dare Screen background pattern
+    bgImage: new Image() 
 };
 
-// Set sources (Update paths to match your actual images)
-assets.ngImage.src = 'assets/images/ui/mainmenu/newgrounds_logo.png'; // Fallbacks to text if missing
-assets.logoImage.src = 'assets/images/ui/mainmenu/logo.png';
-assets.bgImage.src = 'assets/images/ui/backgrounds/title_bg.png';
+assets.ngImage.crossOrigin = "anonymous";
+assets.ngImage.src = 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Newgrounds_text_logo.svg/512px-Newgrounds_text_logo.svg.png';
 
-// Ensure custom font is registered before drawing
+assets.logoImage.crossOrigin = "anonymous";
+assets.logoImage.src = 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/logoBumpin.png';
+
+assets.bgImage.crossOrigin = "anonymous";
+assets.bgImage.src = 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/stageback.png'; 
+
 document.fonts.load('10px "Phantommuff"').then(() => {
     assets.fontLoaded = true;
 });
 
 // --- ENGINE LOOPS ---
 function update(currentTime) {
-    // 1. Beat Tracker Logic
-    if (currentTime - lastBeatTime >= beatInterval) {
-        lastBeatTime = currentTime;
-        beatCount++;
-        onBeat();
-    }
+    if (!startTime) startTime = currentTime;
+    const elapsedTime = currentTime - startTime;
+    
+    // Calculate current fractional beat location precisely matching time
+    const currentBeat = elapsedTime / beatInterval;
 
-    // 2. State Specific Updates
-    if (currentState === STATES.TITLE_SCREEN) {
-        // Slide the Dare Screen background infinitely 
+    if (currentState === STATES.INTRO) {
+        // Run checks dynamically across the decimal timeline entries
+        introSequences.forEach(seq => {
+            if (currentBeat >= seq.beat && lastExecutedBeat < seq.beat) {
+                currentIntroText = seq.text;
+                currentIntroImage = (seq.image === 'newgrounds' && assets.ngImage.complete) ? assets.ngImage : null;
+            }
+        });
+
+        // Track standard rhythm integer triggers for simple updates or logging
+        if (Math.floor(currentBeat) > Math.floor(lastExecutedBeat)) {
+            // Can sync background visual element flashes here if desired
+        }
+
+        lastExecutedBeat = currentBeat;
+
+        if (currentBeat >= TRANSITION_BEAT) {
+            currentState = STATES.TITLE_SCREEN;
+        }
+    } else if (currentState === STATES.TITLE_SCREEN) {
         dareBgOffset -= DARE_BG_SPEED;
         if (dareBgOffset <= -1280) dareBgOffset = 0;
 
-        // Smoothly decay the logo scale back down after a bump
+        // Visual logo scale pulse decay logic
+        if (Math.floor(currentBeat) > Math.floor(lastExecutedBeat)) {
+            logoScale = 1.18; // bump logo on integer beat intervals
+        }
         logoScale += (1.0 - logoScale) * 0.15;
-    }
-}
-
-function onBeat() {
-    // --- INTRO STATE BEATS ---
-    if (currentState === STATES.INTRO) {
-        // Clear previous screen unless sequence explicitly stacks
-        currentIntroText = [];
-        currentIntroImage = null;
-
-        const currentSeq = introSequences.find(seq => seq.startBeat === beatCount);
-        if (currentSeq) {
-            currentIntroText = currentSeq.text;
-            if (currentSeq.image === 'newgrounds' && assets.ngImage.complete) {
-                currentIntroImage = assets.ngImage;
-            }
-        }
-
-        // Transition to Main Screen on Beat 17
-        if (beatCount >= 17) {
-            currentState = STATES.TITLE_SCREEN;
-        }
-    }
-    
-    // --- TITLE SCREEN STATE BEATS ---
-    if (currentState === STATES.TITLE_SCREEN) {
-        // Scale up to 1.15 instantly on the beat to cause the "Bump" effect
-        logoScale = 1.15;
+        lastExecutedBeat = currentBeat;
     }
 }
 
 function draw() {
-    // Clear Screen
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Set font styles globally
     ctx.font = '55px "Phantommuff", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
     if (currentState === STATES.INTRO) {
-        // Render Intro Text Lines centered
         ctx.fillStyle = '#FFFFFF';
-        let startY = canvas.height / 2 - (currentIntroText.length * 30);
+        let startY = canvas.height / 2 - (currentIntroText.length * 35);
         
         currentIntroText.forEach((line, index) => {
-            ctx.fillText(line, canvas.width / 2, startY + (index * 70));
+            ctx.fillText(line, canvas.width / 2, startY + (index * 75));
         });
 
-        // Draw Newgrounds image if it's active
         if (currentIntroImage) {
-            ctx.drawImage(currentIntroImage, canvas.width / 2 - 100, startY + (currentIntroText.length * 70) + 20, 200, 200);
+            let imgW = 350;
+            let imgH = 90;
+            ctx.drawImage(currentIntroImage, canvas.width / 2 - (imgW / 2), startY + (currentIntroText.length * 75) + 20, imgW, imgH);
         }
 
     } else if (currentState === STATES.TITLE_SCREEN) {
-        // 1. Draw Sliding Background
         if (assets.bgImage.complete && assets.bgImage.width > 0) {
-            ctx.drawImage(assets.bgImage, dareBgOffset, 0);
-            ctx.drawImage(assets.bgImage, dareBgOffset + canvas.width, 0);
+            ctx.drawImage(assets.bgImage, dareBgOffset, 0, 1280, 720);
+            ctx.drawImage(assets.bgImage, dareBgOffset + canvas.width, 0, 1280, 720);
         } else {
-            // Placeholder Title BG pattern if image isn't there yet
             ctx.fillStyle = '#330033';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#550055';
-            ctx.fillRect(dareBgOffset % 100, 0, 20, canvas.height);
         }
 
-        // 2. Draw Bumping Logo
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
         ctx.save();
-        ctx.translate(canvas.width / 2, canvas.height / 2 - 80);
+        ctx.translate(canvas.width / 2, canvas.height / 2 - 60);
         ctx.scale(logoScale, logoScale);
         
         if (assets.logoImage.complete && assets.logoImage.width > 0) {
-            ctx.drawImage(assets.logoImage, -assets.logoImage.width / 2, -assets.logoImage.height / 2);
+            ctx.drawImage(assets.logoImage, -350, -200, 700, 400);
         } else {
-            // Placeholder Logo Text
             ctx.fillStyle = '#FFF100';
             ctx.font = '90px "Phantommuff", sans-serif';
             ctx.fillText("PULSE ENGINE", 0, 0);
         }
         ctx.restore();
 
-        // 3. Enter/Click Prompt Text
-        ctx.font = '40px "Phantommuff", sans-serif';
+        ctx.font = '42px "Phantommuff", sans-serif';
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 100);
+        ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 110);
     }
 }
 
@@ -204,14 +210,11 @@ function gameLoop(currentTime) {
     requestAnimationFrame(gameLoop);
 }
 
-// --- CONTROLS / INTERACTION ---
 function advanceScreen() {
     if (currentState === STATES.INTRO) {
-        // Skip intro sequence entirely if clicked/pressed enter early
         currentState = STATES.TITLE_SCREEN;
     } else if (currentState === STATES.TITLE_SCREEN) {
-        alert("Transitioning to Main Menu via gameloop/mainmenu.js!");
-        // Here is where you will eventually execute logic from mainmenu.js
+        console.log("Ready for gameloop/mainmenu.js state redirection!");
     }
 }
 
@@ -223,7 +226,6 @@ canvas.addEventListener('click', () => {
     advanceScreen();
 });
 
-// Start loop
 requestAnimationFrame(gameLoop);
 </script>
 
