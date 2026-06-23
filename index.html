@@ -1,106 +1,230 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Pulse Engine - Story Mode</title>
-
-<style>
-body {
-    margin: 0;
-    background: black;
-    overflow: hidden;
-    font-family: sans-serif;
-}
-
-@font-face {
-    font-family: mainFont;
-    src: url("data/fonts/main.ttf");
-}
-
-#cdnBtn {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    padding: 10px 14px;
-    background: #111;
-    color: white;
-    border: 1px solid white;
-    cursor: pointer;
-    font-family: mainFont;
-    font-size: 16px;
-}
-
-#screen {
-    width: 100%;
-    height: 100%;
-    position: absolute;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-family: mainFont;
-    color: white;
-    flex-direction: column;
-}
-
-.option {
-    font-size: 48px;
-    text-transform: lowercase;
-    opacity: 0.6;
-}
-
-.selected {
-    opacity: 1;
-    transform: scale(1.2);
-    text-transform: uppercase;
-}
-</style>
-</head>
-
-<body>
-
-<div id="cdnBtn">Use CDN: OFF</div>
-
-<div id="screen">
-    <div class="option selected">week 1</div>
-</div>
-
-<script>
-// =============================
-// CDN STATE
-// =============================
-let useCDN = localStorage.getItem("pulse_cdn") === "1";
-
-const btn = document.getElementById("cdnBtn");
-
-function updateBtn(){
-    btn.innerText = "Use CDN: " + (useCDN ? "ON" : "OFF");
-}
-
-btn.onclick = () => {
-    useCDN = !useCDN;
-    localStorage.setItem("pulse_cdn", useCDN ? "1" : "0");
-    updateBtn();
-};
-
-updateBtn();
-
-// =============================
-// START GAME
-// =============================
-document.addEventListener("keydown", e => {
-    if (e.key === "Enter") {
-        localStorage.setItem("pulse_week", "1");
-
-        // ALWAYS carry CDN state into game
-        let url = "game.html?week=1";
-
-        if (useCDN) {
-            url += "&cdn=1";
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse Engine - Prototype</title>
+    <style>
+        @font-face {
+            font-family: 'Phantommuff';
+            src: url('fonts/main.ttf') format('truetype');
         }
 
-        location.href = url;
-    }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        canvas {
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- GAME STATES ---
+const STATES = { INTRO: 0, TITLE_SCREEN: 1 };
+let currentState = STATES.INTRO;
+
+// --- AUDIO/BPM TIMING ---
+const BPM = 102; // Standard FNF title track BPM
+const beatInterval = (60 / BPM) * 1000; // ms per beat
+let lastBeatTime = 0;
+let beatCount = 0;
+
+// --- INTRO TEXT SEQUENCE DATA ---
+const introSequences = [
+    // Beat 1-4: Creator
+    { startBeat: 1, text: ["Created By", "CJTG999"], image: null },
+    { startBeat: 3, text: ["Created By", "CJTG999"], image: null }, // keeps it on screen
+    
+    // Beat 5-8: Newgrounds Disclaimer
+    { startBeat: 5, text: ["In partnership with", "nobody lmao"], image: null },
+    { startBeat: 7, text: ["Not associated with", "Newgrounds"], image: 'newgrounds' },
+    
+    // Beat 9-12: Random Shoutouts / Funny lines
+    { startBeat: 9, text: ["Shoutout to", "all the web devs"], image: null },
+    { startBeat: 11, text: ["Pure HTML", "No Haxe in sight"], image: null },
+    
+    // Beat 13-16: Title Drop
+    { startBeat: 13, text: ["Friday", "Night"], image: null },
+    { startBeat: 14, text: ["Friday", "Night", "Funkin"], image: null },
+    { startBeat: 15, text: ["FNF", "Pulse", "Engine"], image: null }
+];
+
+let currentIntroText = [];
+let currentIntroImage = null;
+
+// --- VISUAL VARIABLES ---
+let logoScale = 1.0;
+let dareBgOffset = 0;
+const DARE_BG_SPEED = 2; // Speed of the sliding background strips
+
+// --- ASSET LOADING ---
+const assets = {
+    fontLoaded: false,
+    ngImage: new Image(),
+    logoImage: new Image(),
+    bgImage: new Image() // The Dare Screen background pattern
+};
+
+// Set sources (Update paths to match your actual images)
+assets.ngImage.src = 'assets/images/ui/mainmenu/newgrounds_logo.png'; // Fallbacks to text if missing
+assets.logoImage.src = 'assets/images/ui/mainmenu/logo.png';
+assets.bgImage.src = 'assets/images/ui/backgrounds/title_bg.png';
+
+// Ensure custom font is registered before drawing
+document.fonts.load('10px "Phantommuff"').then(() => {
+    assets.fontLoaded = true;
 });
+
+// --- ENGINE LOOPS ---
+function update(currentTime) {
+    // 1. Beat Tracker Logic
+    if (currentTime - lastBeatTime >= beatInterval) {
+        lastBeatTime = currentTime;
+        beatCount++;
+        onBeat();
+    }
+
+    // 2. State Specific Updates
+    if (currentState === STATES.TITLE_SCREEN) {
+        // Slide the Dare Screen background infinitely 
+        dareBgOffset -= DARE_BG_SPEED;
+        if (dareBgOffset <= -1280) dareBgOffset = 0;
+
+        // Smoothly decay the logo scale back down after a bump
+        logoScale += (1.0 - logoScale) * 0.15;
+    }
+}
+
+function onBeat() {
+    // --- INTRO STATE BEATS ---
+    if (currentState === STATES.INTRO) {
+        // Clear previous screen unless sequence explicitly stacks
+        currentIntroText = [];
+        currentIntroImage = null;
+
+        const currentSeq = introSequences.find(seq => seq.startBeat === beatCount);
+        if (currentSeq) {
+            currentIntroText = currentSeq.text;
+            if (currentSeq.image === 'newgrounds' && assets.ngImage.complete) {
+                currentIntroImage = assets.ngImage;
+            }
+        }
+
+        // Transition to Main Screen on Beat 17
+        if (beatCount >= 17) {
+            currentState = STATES.TITLE_SCREEN;
+        }
+    }
+    
+    // --- TITLE SCREEN STATE BEATS ---
+    if (currentState === STATES.TITLE_SCREEN) {
+        // Scale up to 1.15 instantly on the beat to cause the "Bump" effect
+        logoScale = 1.15;
+    }
+}
+
+function draw() {
+    // Clear Screen
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Set font styles globally
+    ctx.font = '55px "Phantommuff", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (currentState === STATES.INTRO) {
+        // Render Intro Text Lines centered
+        ctx.fillStyle = '#FFFFFF';
+        let startY = canvas.height / 2 - (currentIntroText.length * 30);
+        
+        currentIntroText.forEach((line, index) => {
+            ctx.fillText(line, canvas.width / 2, startY + (index * 70));
+        });
+
+        // Draw Newgrounds image if it's active
+        if (currentIntroImage) {
+            ctx.drawImage(currentIntroImage, canvas.width / 2 - 100, startY + (currentIntroText.length * 70) + 20, 200, 200);
+        }
+
+    } else if (currentState === STATES.TITLE_SCREEN) {
+        // 1. Draw Sliding Background
+        if (assets.bgImage.complete && assets.bgImage.width > 0) {
+            ctx.drawImage(assets.bgImage, dareBgOffset, 0);
+            ctx.drawImage(assets.bgImage, dareBgOffset + canvas.width, 0);
+        } else {
+            // Placeholder Title BG pattern if image isn't there yet
+            ctx.fillStyle = '#330033';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#550055';
+            ctx.fillRect(dareBgOffset % 100, 0, 20, canvas.height);
+        }
+
+        // 2. Draw Bumping Logo
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2 - 80);
+        ctx.scale(logoScale, logoScale);
+        
+        if (assets.logoImage.complete && assets.logoImage.width > 0) {
+            ctx.drawImage(assets.logoImage, -assets.logoImage.width / 2, -assets.logoImage.height / 2);
+        } else {
+            // Placeholder Logo Text
+            ctx.fillStyle = '#FFF100';
+            ctx.font = '90px "Phantommuff", sans-serif';
+            ctx.fillText("PULSE ENGINE", 0, 0);
+        }
+        ctx.restore();
+
+        // 3. Enter/Click Prompt Text
+        ctx.font = '40px "Phantommuff", sans-serif';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 100);
+    }
+}
+
+function gameLoop(currentTime) {
+    update(currentTime);
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// --- CONTROLS / INTERACTION ---
+function advanceScreen() {
+    if (currentState === STATES.INTRO) {
+        // Skip intro sequence entirely if clicked/pressed enter early
+        currentState = STATES.TITLE_SCREEN;
+    } else if (currentState === STATES.TITLE_SCREEN) {
+        alert("Transitioning to Main Menu via gameloop/mainmenu.js!");
+        // Here is where you will eventually execute logic from mainmenu.js
+    }
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') advanceScreen();
+});
+
+canvas.addEventListener('click', () => {
+    advanceScreen();
+});
+
+// Start loop
+requestAnimationFrame(gameLoop);
 </script>
 
 </body>
