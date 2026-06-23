@@ -39,11 +39,11 @@ const ctx = canvas.getContext('2d');
 const STATES = { LOADING: -1, INTRO: 0, TITLE_SCREEN: 1 };
 let currentState = STATES.LOADING;
 
-// --- LOCAL PATHS (Updated Path Configuration) ---
+// --- LOCAL PATHS ---
 const ASSET_PATHS = {
-    ngLogo: "/images/menus/newgrounds_logo.png",
-    logoPng: "/images/menus/logoBumpin.png",
-    logoXml: "/images/menus/logoBumpin.xml"
+    ngLogo: "images/menus/newgrounds_logo.png",
+    logoPng: "images/menus/logoBumpin.png",
+    logoXml: "images/menus/logoBumpin.xml"
 };
 
 const assets = {
@@ -52,17 +52,16 @@ const assets = {
     logoFrames: []
 };
 
-// --- ANIMATION TRACKING ---
+// --- TIMING & VISUALS ---
 let currentFrameIndex = 0;
 let isAnimatingLogo = false;
 let animationTimer = 0;
 const FRAME_RATE = 1000 / 24; 
+let logoScale = 1.0;
 
-// --- 25% CHANCE EASTER EGG ---
 const isEasterEgg = Math.random() < 0.25;
 const finalTitleDrop = isEasterEgg ? ["USE", "DFJK", "LOL"] : ["FNF", "PULSE", "ENGINE"];
 
-// --- PRECISE TIMELINE ---
 const introTimeline = [
     { time: 500,  text: ["Created By"], showNG: false },
     { time: 2250, text: ["Created By", "CJTG999"], showNG: false },
@@ -79,69 +78,62 @@ const introTimeline = [
     { time: 14500, transition: true }
 ];
 
-let currentText = ["LOADING ENGINE ASSETS..."];
+let currentText = ["INITIALIZING ASSETS..."];
+let loadErrors = [];
 let drawNewgroundsLogo = false;
 let startTime = null;
 
-// --- TITLE SCREEN VISUALS ---
 let dareBgOffset = 0;
 const DARE_BG_SPEED = 2;
 let lastBeatCheck = 0;
 
-// --- LOCAL ASSET PRELOADER ---
+// --- ASSET PRELOADER ---
 async function preloadAssets() {
+    const loadImg = (img, src) => new Promise((resolve) => {
+        img.src = src;
+        img.onload = () => resolve();
+        img.onerror = () => { 
+            loadErrors.push(`Missing Image: "${src}"`);
+            resolve(); 
+        };
+    });
+
+    await Promise.all([
+        loadImg(assets.ngImage, ASSET_PATHS.ngLogo),
+        loadImg(assets.logoImage, ASSET_PATHS.logoPng)
+    ]);
+
     try {
-        const loadImg = (img, src) => new Promise((resolve) => {
-            img.src = src;
-            img.onload = () => resolve();
-            img.onerror = () => { 
-                console.warn("Skipping image (using text fallback):", src); 
-                resolve(); 
-            };
-        });
+        const response = await fetch(ASSET_PATHS.logoXml);
+        if (response.ok) {
+            const xmlText = await response.text();
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+            const subTextures = xmlDoc.getElementsByTagName("SubTexture");
 
-        // Load images locally from assets/images/menus/
-        await Promise.all([
-            loadImg(assets.ngImage, ASSET_PATHS.ngLogo),
-            loadImg(assets.logoImage, ASSET_PATHS.logoPng)
-        ]);
-
-        // Fetch and Parse local XML file
-        try {
-            const response = await fetch(ASSET_PATHS.logoXml);
-            if (response.ok) {
-                const xmlText = await response.text();
-                const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-                const subTextures = xmlDoc.getElementsByTagName("SubTexture");
-
-                for (let i = 0; i < subTextures.length; i++) {
-                    let frame = subTextures[i];
-                    assets.logoFrames.push({
-                        name: frame.getAttribute("name"),
-                        x: parseInt(frame.getAttribute("x")),
-                        y: parseInt(frame.getAttribute("y")),
-                        width: parseInt(frame.getAttribute("width")),
-                        height: parseInt(frame.getAttribute("height")),
-                        frameX: parseInt(frame.getAttribute("frameX") || 0),
-                        frameY: parseInt(frame.getAttribute("frameY") || 0)
-                    });
-                }
+            for (let i = 0; i < subTextures.length; i++) {
+                let frame = subTextures[i];
+                assets.logoFrames.push({
+                    name: frame.getAttribute("name"),
+                    x: parseInt(frame.getAttribute("x")),
+                    y: parseInt(frame.getAttribute("y")),
+                    width: parseInt(frame.getAttribute("width")),
+                    height: parseInt(frame.getAttribute("height")),
+                    frameX: parseInt(frame.getAttribute("frameX") || 0),
+                    frameY: parseInt(frame.getAttribute("frameY") || 0)
+                });
             }
-        } catch (xmlError) {
-            console.warn("XML parsing failed, using text logo fallback:", xmlError);
+        } else {
+            loadErrors.push(`Missing XML: "${ASSET_PATHS.logoXml}" (HTTP ${response.status})`);
         }
-        
-        currentState = STATES.INTRO;
-        currentText = [];
-    } catch (e) {
-        console.error("Forcing engine start:", e);
-        currentState = STATES.INTRO;
-        currentText = [];
+    } catch (xmlError) {
+        loadErrors.push(`CORS Block / Fetch error. Please run through a local web server!`);
     }
+    
+    currentState = STATES.INTRO;
+    currentText = [];
 }
 
-// --- ENGINE LOOPS ---
 function update(currentTime) {
     if (currentState === STATES.LOADING) return;
 
@@ -155,7 +147,6 @@ function update(currentTime) {
                 activeEvent = introTimeline[i];
             }
         }
-
         if (activeEvent) {
             if (activeEvent.transition) {
                 currentState = STATES.TITLE_SCREEN;
@@ -169,13 +160,18 @@ function update(currentTime) {
         dareBgOffset -= DARE_BG_SPEED;
         if (dareBgOffset <= -1280) dareBgOffset = 0;
 
+        // Steady 120 BPM Bump beat (every 500ms)
         let currentBeatCheck = Math.floor(elapsed / 500);
         if (currentBeatCheck > lastBeatCheck) {
             isAnimatingLogo = true;
             currentFrameIndex = 0; 
+            logoScale = 1.20; // Scale up slightly on beat trigger
             lastBeatCheck = currentBeatCheck;
         }
 
+        logoScale += (1.0 - logoScale) * 0.15;
+
+        // Sequence frames via Sparrow sheet metrics
         if (isAnimatingLogo && assets.logoFrames.length > 0) {
             animationTimer += 16.67; 
             if (animationTimer >= FRAME_RATE) {
@@ -198,11 +194,7 @@ function draw() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    if (currentState === STATES.LOADING) {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillText(currentText[0], canvas.width / 2, canvas.height / 2);
-    }
-    else if (currentState === STATES.INTRO) {
+    if (currentState === STATES.INTRO) {
         ctx.fillStyle = '#FFFFFF';
         let startY = canvas.height / 2 - (currentText.length * 35);
         
@@ -210,43 +202,62 @@ function draw() {
             ctx.fillText(line, canvas.width / 2, startY + (index * 75));
         });
 
+        // Draw local newgrounds_logo.png centered below text lines
         if (drawNewgroundsLogo && assets.ngImage.complete && assets.ngImage.width > 0) {
-            let size = 150;
-            ctx.drawImage(assets.ngImage, canvas.width / 2 - (size / 2), startY + (currentText.length * 75) + 20, size, size);
+            let imgW = assets.ngImage.width;
+            let imgH = assets.ngImage.height;
+            // Cap sizing if asset is massive
+            if (imgW > 400) { imgW = 350; imgH = 90; }
+            ctx.drawImage(assets.ngImage, canvas.width / 2 - (imgW / 2), startY + (currentText.length * 75) + 30, imgW, imgH);
         }
     } 
     else if (currentState === STATES.TITLE_SCREEN) {
-        // Sliding Dare Screen Grid Placeholder
-        ctx.fillStyle = '#330033';
+        // Sliding Dare Grid 
+        ctx.fillStyle = '#1f0033';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#470047';
+        ctx.fillStyle = '#39005c';
         for (let i = 0; i < canvas.width + 100; i += 100) {
-            ctx.fillRect(i + (dareBgOffset % 100), 0, 15, canvas.height);
+            ctx.fillRect(i + (dareBgOffset % 100), 0, 20, canvas.height);
         }
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Draw Bumping Logo
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2 - 60);
+        ctx.scale(logoScale, logoScale);
 
-        // Render Animated XML Logo or Text Fallback
         if (assets.logoImage.complete && assets.logoFrames.length > 0) {
             const frame = assets.logoFrames[currentFrameIndex];
-            ctx.save();
-            ctx.translate(canvas.width / 2 - (frame.width / 2) - frame.frameX, canvas.height / 2 - (frame.height / 2) - frame.frameY - 60);
+            // Center frame dynamically accounting for offset frames (frameX, frameY)
             ctx.drawImage(
                 assets.logoImage,
                 frame.x, frame.y, frame.width, frame.height,
-                0, 0, frame.width, frame.height
+                -(frame.width / 2) - frame.frameX, -(frame.height / 2) - frame.frameY, frame.width, frame.height
             );
-            ctx.restore();
         } else {
-            ctx.fillStyle = '#FFF100';
-            ctx.font = '90px "Phantommuff", sans-serif';
-            ctx.fillText("PULSE ENGINE", canvas.width / 2, canvas.height / 2 - 60);
+            // Text color flashing fallback if files aren't found
+            ctx.fillStyle = (Math.floor(Date.now() / 250) % 2 === 0) ? '#FFF100' : '#FF0055';
+            ctx.font = 'bold 95px "Phantommuff", sans-serif';
+            ctx.fillText("PULSE ENGINE", 0, 0);
         }
+        ctx.restore();
 
+        // Prompt
         ctx.font = '42px "Phantommuff", sans-serif';
         ctx.fillStyle = '#FFFFFF';
         ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 110);
+
+        // Path troubleshooting list overlay
+        if (loadErrors.length > 0) {
+            ctx.save();
+            ctx.font = '16px monospace';
+            ctx.fillStyle = '#FF3333';
+            ctx.textAlign = 'left';
+            ctx.fillText("⚠️ PATH ALERTS (Check local directory):", 20, 30);
+            loadErrors.forEach((err, idx) => {
+                ctx.fillText(`• ${err}`, 20, 55 + (idx * 22));
+            });
+            ctx.restore();
+        }
     }
 }
 
@@ -259,19 +270,11 @@ function gameLoop(currentTime) {
 function advanceScreen() {
     if (currentState === STATES.INTRO) {
         currentState = STATES.TITLE_SCREEN;
-    } else if (currentState === STATES.TITLE_SCREEN) {
-        console.log("Routing to gameloop/mainmenu.js next!");
     }
 }
 
-window.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') advanceScreen();
-});
-
-canvas.addEventListener('click', () => {
-    if (currentState === STATES.LOADING) return;
-    advanceScreen();
-});
+window.addEventListener('keydown', (e) => { if (e.key === 'Enter') advanceScreen(); });
+canvas.addEventListener('click', advanceScreen);
 
 preloadAssets();
 requestAnimationFrame(gameLoop);
