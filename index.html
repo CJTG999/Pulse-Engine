@@ -35,145 +35,133 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- GAME STATES ---
 const STATES = { INTRO: 0, TITLE_SCREEN: 1 };
 let currentState = STATES.INTRO;
 
-// --- AUDIO/BPM TIMING (Fixed at 120 BPM for 0.5s beats) ---
-const BPM = 120; 
-const beatInterval = (60 / BPM) * 1000; // Exactly 500ms per beat
-let startTime = null;
-
-// --- DETERMINING EASTER EGG (25% CHANCE) ---
+// --- 25% CHANCE EASTER EGG ---
 const isEasterEgg = Math.random() < 0.25;
 const finalTitleDrop = isEasterEgg ? ["USE", "DFJK", "LOL"] : ["FNF", "PULSE", "ENGINE"];
 
-// --- CUSTOM TIME TIMELINE ---
-// Based on: 1.75s line delay (3.5 beats), 0.5s section delay (1 beat), 0.5s drop delay (1 beat)
-const introSequences = [
-    // --- SECTION 1 ---
-    { beat: 1.0, text: ["Created By"], image: null },
-    { beat: 4.5, text: ["Created By", "CJTG999"], image: null }, // +1.75s (3.5 beats)
-    
-    // Clear screen: 1 beat pause (0.5s) after Section 1 finishes at beat 5.5
-    { beat: 6.5, text: [], image: null }, 
+// --- PRECISE MILLISECOND TIMELINE ---
+// Delays: 1.75s between lines, 0.5s between sections, 0.5s between final drops
+const introTimeline = [
+    // Section 1
+    { time: 500,  text: ["Created By"], showNG: false },
+    { time: 2250, text: ["Created By", "CJTG999"], showNG: false }, // +1.75s
+    { time: 3750, text: [], showNG: false },                        // +1.5s clear screen
 
-    // --- SECTION 2 ---
-    { beat: 7.5, text: ["Not Associated With"], image: null },
-    { beat: 11.0, text: ["Not Associated With", "Newgrounds"], image: 'newgrounds' }, // +1.75s (3.5 beats)
-    
-    // Clear screen: 1 beat pause (0.5s) after Section 2 finishes at beat 12.0
-    { beat: 13.0, text: [], image: null },
+    // Section 2
+    { time: 4250, text: ["Not Associated With"], showNG: false },   // +0.5s section delay
+    { time: 6000, text: ["Not Associated With", "Newgrounds"], showNG: true }, // +1.75s
+    { time: 7500, text: [], showNG: false },                        // +1.5s clear screen
 
-    // --- SECTION 3 ---
-    { beat: 14.0, text: ["Pure HTML"], image: null },
-    { beat: 17.5, text: ["Pure HTML", "No Haxe in sight"], image: null }, // +1.75s (3.5 beats)
-    
-    // Clear screen: 1 beat pause (0.5s) after Section 3 finishes at beat 18.5
-    { beat: 19.5, text: [], image: null },
+    // Section 3
+    { time: 8000, text: ["Pure HTML"], showNG: false },             // +0.5s section delay
+    { time: 9750, text: ["Pure HTML", "No Haxe in sight"], showNG: false }, // +1.75s
+    { time: 11250, text: [], showNG: false },                       // +1.5s clear screen
 
-    // --- SECTION 4: TITLE DROP --- (0.5s / 1 beat pacing)
-    { beat: 20.5, text: [finalTitleDrop[0]], image: null },
-    { beat: 21.5, text: [finalTitleDrop[0], finalTitleDrop[1]], image: null },
-    { beat: 22.5, text: [finalTitleDrop[0], finalTitleDrop[1], finalTitleDrop[2]], image: null }
+    // Section 4: Title Drop (0.5s delays)
+    { time: 11750, text: [finalTitleDrop[0]], showNG: false },      // +0.5s section delay
+    { time: 12250, text: [finalTitleDrop[0], finalTitleDrop[1]], showNG: false }, // +0.5s
+    { time: 12750, text: [finalTitleDrop[0], finalTitleDrop[1], finalTitleDrop[2]], showNG: false }, // +0.5s
+    { time: 14500, transition: true }                               // Move to main screen
 ];
 
-// Screen auto-transitions to Title Screen 1.5 seconds after final text drops
-const TRANSITION_BEAT = 25.5; 
+let currentText = [];
+let drawNewgroundsLogo = false;
+let startTime = null;
 
-let currentIntroText = [];
-let currentIntroImage = null;
-let lastExecutedBeat = 0;
-
-// --- VISUAL VARIABLES ---
+// --- TITLE SCREEN VISUALS ---
 let logoScale = 1.0;
 let dareBgOffset = 0;
-const DARE_BG_SPEED = 2; 
+const DARE_BG_SPEED = 2;
+let lastBeatCheck = 0;
 
 // --- ASSET LOADING ---
 const assets = {
-    fontLoaded: false,
     ngImage: new Image(),
     logoImage: new Image(),
-    bgImage: new Image() 
+    bgImage: new Image()
 };
 
+// Standard web-fallback assets
 assets.ngImage.crossOrigin = "anonymous";
-assets.ngImage.src = 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Newgrounds_text_logo.svg/512px-Newgrounds_text_logo.svg.png';
+assets.ngImage.src = 'https://pins.newgrounds.com/images/pins/classic-tank.png'; // Direct link to classic tank icon
 
 assets.logoImage.crossOrigin = "anonymous";
 assets.logoImage.src = 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/logoBumpin.png';
 
 assets.bgImage.crossOrigin = "anonymous";
-assets.bgImage.src = 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/stageback.png'; 
-
-document.fonts.load('10px "Phantommuff"').then(() => {
-    assets.fontLoaded = true;
-});
+assets.bgImage.src = 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/stageback.png';
 
 // --- ENGINE LOOPS ---
 function update(currentTime) {
     if (!startTime) startTime = currentTime;
-    const elapsedTime = currentTime - startTime;
-    
-    // Calculate current fractional beat location precisely matching time
-    const currentBeat = elapsedTime / beatInterval;
+    const elapsed = currentTime - startTime;
 
     if (currentState === STATES.INTRO) {
-        // Run checks dynamically across the decimal timeline entries
-        introSequences.forEach(seq => {
-            if (currentBeat >= seq.beat && lastExecutedBeat < seq.beat) {
-                currentIntroText = seq.text;
-                currentIntroImage = (seq.image === 'newgrounds' && assets.ngImage.complete) ? assets.ngImage : null;
+        // Find the most recent timeline event that matches our current time
+        let activeEvent = null;
+        for (let i = 0; i < introTimeline.length; i++) {
+            if (elapsed >= introTimeline[i].time) {
+                activeEvent = introTimeline[i];
             }
-        });
-
-        // Track standard rhythm integer triggers for simple updates or logging
-        if (Math.floor(currentBeat) > Math.floor(lastExecutedBeat)) {
-            // Can sync background visual element flashes here if desired
         }
 
-        lastExecutedBeat = currentBeat;
-
-        if (currentBeat >= TRANSITION_BEAT) {
-            currentState = STATES.TITLE_SCREEN;
+        if (activeEvent) {
+            if (activeEvent.transition) {
+                currentState = STATES.TITLE_SCREEN;
+            } else {
+                currentText = activeEvent.text;
+                drawNewgroundsLogo = activeEvent.showNG;
+            }
         }
-    } else if (currentState === STATES.TITLE_SCREEN) {
+    } 
+    else if (currentState === STATES.TITLE_SCREEN) {
         dareBgOffset -= DARE_BG_SPEED;
         if (dareBgOffset <= -1280) dareBgOffset = 0;
 
-        // Visual logo scale pulse decay logic
-        if (Math.floor(currentBeat) > Math.floor(lastExecutedBeat)) {
-            logoScale = 1.18; // bump logo on integer beat intervals
+        // Fake a steady 120 BPM bump rhythm (every 500ms)
+        let currentBeatCheck = Math.floor(elapsed / 500);
+        if (currentBeatCheck > lastBeatCheck) {
+            logoScale = 1.18; // Bump!
+            lastBeatCheck = currentBeatCheck;
         }
+
         logoScale += (1.0 - logoScale) * 0.15;
-        lastExecutedBeat = currentBeat;
     }
 }
 
 function draw() {
+    // Clear Canvas
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Font Defaults
     ctx.font = '55px "Phantommuff", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
     if (currentState === STATES.INTRO) {
         ctx.fillStyle = '#FFFFFF';
-        let startY = canvas.height / 2 - (currentIntroText.length * 35);
+        let startY = canvas.height / 2 - (currentText.length * 35);
         
-        currentIntroText.forEach((line, index) => {
+        currentText.forEach((line, index) => {
             ctx.fillText(line, canvas.width / 2, startY + (index * 75));
         });
 
-        if (currentIntroImage) {
-            let imgW = 350;
-            let imgH = 90;
-            ctx.drawImage(currentIntroImage, canvas.width / 2 - (imgW / 2), startY + (currentIntroText.length * 75) + 20, imgW, imgH);
+        // Safe Image Draw (Won't crash engine if image fails to download)
+        if (drawNewgroundsLogo && assets.ngImage.complete && assets.ngImage.width > 0) {
+            try {
+                let size = 120; // square tank icon size
+                ctx.drawImage(assets.ngImage, canvas.width / 2 - (size / 2), startY + (currentText.length * 75) + 20, size, size);
+            } catch (e) {
+                console.warn("Failed to render NG image placeholder safely:", e);
+            }
         }
 
     } else if (currentState === STATES.TITLE_SCREEN) {
+        // 1. Background Layer
         if (assets.bgImage.complete && assets.bgImage.width > 0) {
             ctx.drawImage(assets.bgImage, dareBgOffset, 0, 1280, 720);
             ctx.drawImage(assets.bgImage, dareBgOffset + canvas.width, 0, 1280, 720);
@@ -182,9 +170,11 @@ function draw() {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
+        // Dark dim overlay
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+        // 2. Logo Layer
         ctx.save();
         ctx.translate(canvas.width / 2, canvas.height / 2 - 60);
         ctx.scale(logoScale, logoScale);
@@ -198,6 +188,7 @@ function draw() {
         }
         ctx.restore();
 
+        // 3. UI Prompt Text
         ctx.font = '42px "Phantommuff", sans-serif';
         ctx.fillStyle = '#FFFFFF';
         ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 110);
@@ -214,7 +205,7 @@ function advanceScreen() {
     if (currentState === STATES.INTRO) {
         currentState = STATES.TITLE_SCREEN;
     } else if (currentState === STATES.TITLE_SCREEN) {
-        console.log("Ready for gameloop/mainmenu.js state redirection!");
+        console.log("Ready to initialize mainmenu.js script routing!");
     }
 }
 
