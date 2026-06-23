@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Pulse Engine</title>
@@ -7,8 +7,8 @@
 <style>
 body {
     margin: 0;
-    overflow: hidden;
     background: black;
+    overflow: hidden;
 }
 
 canvas {
@@ -23,170 +23,162 @@ canvas {
 
 <canvas id="c"></canvas>
 
-<audio id="inst" src="audio/songs/Inst.ogg"></audio>
-<audio id="voxP" src="audio/songs/Voices-Player.ogg"></audio>
-<audio id="voxO" src="audio/songs/Voices-Opponent.ogg"></audio>
+<audio id="inst"></audio>
+<audio id="vp"></audio>
+<audio id="vo"></audio>
 
 <script>
-// ===============================
+// =============================
+// CDN SYNC SYSTEM (NEW)
+// =============================
+const params = new URLSearchParams(location.search);
+
+let useCDN =
+    params.get("cdn") === "1" ||
+    localStorage.getItem("pulse_cdn") === "1";
+
+const BASE = useCDN
+    ? "https://cdn.jsdelivr.net/gh/CJTG999/Pulse-Engine@main/"
+    : "";
+
+function path(p){
+    return BASE + p;
+}
+
+// =============================
 // CANVAS
-// ===============================
+// =============================
 const c = document.getElementById("c");
 const ctx = c.getContext("2d");
 c.width = innerWidth;
 c.height = innerHeight;
 
-// ===============================
+// =============================
+// WEEK SYSTEM
+// =============================
+const week = params.get("week") || "1";
+
+// =============================
+// SONG RESOLVE
+// =============================
+let song = "bopeebo";
+
+if (week === "1") song = "bopeebo";
+
+// =============================
 // AUDIO
-// ===============================
+// =============================
 const inst = document.getElementById("inst");
-const voxP = document.getElementById("voxP");
-const voxO = document.getElementById("voxO");
+const vp = document.getElementById("vp");
+const vo = document.getElementById("vo");
 
-// ===============================
-// GLOBAL STATE
-// ===============================
-let started = false;
-let time = 0;
+inst.src = path(`audio/songs/${song}.ogg`);
+vp.src   = path(`audio/songs/Voices-Player.ogg`);
+vo.src   = path(`audio/songs/Voices-Opponent.ogg`);
 
-// ===============================
-// LOAD ALL ASSETS (REGISTRY SYSTEM)
-// ===============================
-function img(src) {
-    const i = new Image();
-    i.src = src;
-    return i;
-}
-
-// MENU
-const menubg = img("images/menus/menubg.png");
-const logo = img("images/menus/logoBumpin.png");
-
-// STAGE
-const stageBack = img("images/game/stages/stage/stageback.png");
-const stageFront = img("images/game/stages/stage/stagefront.png");
-const curtains = img("images/game/stages/stage/stagecurtains.png");
-const light = img("images/game/stages/stage/stage_light.png");
-
-// NOTES
-const arrows = img("images/game/notes/arrows.png");
-const splashes = img("images/game/notes/splashes.png");
-
-// CHARACTERS
-const bf = img("data/characters/bf/bf.png");
-const dad = img("data/characters/dad/dad.png");
-
-// ===============================
-// CHART
-// ===============================
-let chart = null;
-let notes = [];
-
-fetch("data/charts/bopeebo.json")
-.then(r => r.json())
-.then(d => {
-    chart = d;
-    notes = d.notes || [];
-});
-
-// ===============================
+// =============================
 // INPUT
-// ===============================
+// =============================
 const keys = {};
 document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
 document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
-// ===============================
+// =============================
+// IMAGE
+// =============================
+function img(src){
+    const i = new Image();
+    i.src = path(src);
+    return i;
+}
+
+const arrows = img("images/game/notes/arrows.png");
+
+// =============================
+// CHART
+// =============================
+let notes = [];
+
+fetch(path(`data/charts/${song}.json`))
+.then(r => r.json())
+.then(d => {
+    notes = d.notes.map(n => ({...n, hit:false}));
+});
+
+// =============================
 // START
-// ===============================
-function start() {
+// =============================
+let started = false;
+let time = 0;
+
+setTimeout(() => {
     inst.play();
-    voxP.play();
-    voxO.play();
+    vp.play();
+    vo.play();
     started = true;
-}
+}, 500);
 
-setTimeout(start, 500);
+// =============================
+// LOOP
+// =============================
+function update(){
+    if(!started) return;
 
-// ===============================
-// LOGO BOP (REAL FNF STYLE)
-// ===============================
-function bop(t) {
-    return 1 + Math.sin(t * 6) * 0.05;
-}
-
-// ===============================
-// UPDATE
-// ===============================
-function update(dt) {
-    if (!started) return;
     time = inst.currentTime;
-}
 
-// ===============================
-// DRAW HELPERS
-// ===============================
-function drawSprite(img, x, y, s=1) {
-    if (!img.complete) return;
-    ctx.drawImage(img, x, y, img.width*s, img.height*s);
-}
+    const map = ["a","s","w","d"];
 
-// ===============================
-// DRAW GAME
-// ===============================
-function draw() {
-    ctx.clearRect(0,0,c.width,c.height);
+    for(let i=0;i<4;i++){
+        if(!keys[map[i]]) continue;
 
-    // STAGE
-    drawSprite(stageBack, 0, 0, c.width / stageBack.width);
-    drawSprite(light, 0, 0, c.width / light.width);
+        for(let n of notes){
+            if(n.hit || n.lane !== i) continue;
 
-    // DAD (left)
-    drawSprite(dad, 200, 300, 1);
+            let diff = time - n.time;
 
-    // BF (right)
-    drawSprite(bf, c.width - 400, 300, 1);
-
-    // CURTAINS FRONT
-    drawSprite(curtains, 0, 0, c.width / curtains.width);
-
-    // LOGO (bop)
-    let scale = bop(time);
-    if (logo.complete) {
-        ctx.drawImage(
-            logo,
-            c.width/2 - (logo.width*scale)/2,
-            50,
-            logo.width*scale,
-            logo.height*scale
-        );
-    }
-
-    // NOTES
-    if (chart) {
-        for (let n of notes) {
-            let laneX = c.width/2 + (n.lane - 2) * 90;
-            let y = 200 + (n.time - time) * 400;
-
-            if (y > -100 && y < c.height+100) {
-                drawSprite(arrows, laneX, y, 1);
+            if(diff > -0.2 && diff < 0.2){
+                n.hit = true;
+                break;
             }
         }
     }
 
-    // DEBUG HUD
-    ctx.fillStyle = "white";
-    ctx.font = "20px Arial";
-    ctx.fillText("Pulse Engine v0.1", 20, 30);
-    ctx.fillText("Time: " + time.toFixed(2), 20, 60);
+    for(let n of notes){
+        if(!n.hit && time - n.time > 0.25){
+            n.hit = true;
+        }
+    }
 }
 
-// ===============================
+function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+
+    for(let n of notes){
+        if(n.hit) continue;
+
+        let x = c.width/2 + (n.lane-2)*90;
+        let y = 200 + (n.time-time)*500;
+
+        ctx.drawImage(arrows, x, y, 50, 50);
+    }
+
+    ctx.fillStyle = "white";
+    ctx.font = "18px Arial";
+    ctx.fillText("SONG: " + song, 50, 50);
+    ctx.fillText("CDN: " + (useCDN ? "ON" : "OFF"), 50, 80);
+}
+
+// =============================
 // LOOP
-// ===============================
-function loop() {
-    update();
+// =============================
+let last = performance.now();
+function loop(now){
+    let dt = (now-last)/1000;
+    last=now;
+
+    update(dt);
     draw();
+
     requestAnimationFrame(loop);
 }
 loop();
