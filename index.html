@@ -7,7 +7,8 @@
     <style>
         @font-face {
             font-family: 'Phantommuff';
-            src: url('https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/fonts/vcr.ttf') format('truetype');
+            src: url('fonts/main.ttf') format('truetype'),
+                 url('https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/fonts/vcr.ttf') format('truetype');
         }
 
         body {
@@ -38,27 +39,24 @@ const ctx = canvas.getContext('2d');
 const STATES = { LOADING: -1, INTRO: 0, TITLE_SCREEN: 1 };
 let currentState = STATES.LOADING;
 
-// --- CDN PATHS (Your Repo) ---
-const REPO_URL = "https://cdn.jsdelivr.net/gh/CJTG999/FWPEIHTML/";
+// --- LOCAL PATHS (Updated Path Configuration) ---
 const ASSET_PATHS = {
-    ngLogo: REPO_URL + "assets/images/newgrounds_logo.png",
-    logoPng: REPO_URL + "assets/images/logoBumpin.png",
-    logoXml: REPO_URL + "assets/images/logoBumpin.xml"
+    ngLogo: "/images/menus/newgrounds_logo.png",
+    logoPng: "/images/menus/logoBumpin.png",
+    logoXml: "/images/menus/logoBumpin.xml"
 };
 
-// --- ENGINE SYSTEM ASSETS ---
 const assets = {
     ngImage: new Image(),
     logoImage: new Image(),
-    logoFrames: [], // Parsed XML frames go here
-    bgImage: new Image() // Temp fallback background
+    logoFrames: []
 };
 
 // --- ANIMATION TRACKING ---
 let currentFrameIndex = 0;
 let isAnimatingLogo = false;
 let animationTimer = 0;
-const FRAME_RATE = 1000 / 24; // 24 FPS animation speed
+const FRAME_RATE = 1000 / 24; 
 
 // --- 25% CHANCE EASTER EGG ---
 const isEasterEgg = Math.random() < 0.25;
@@ -81,7 +79,7 @@ const introTimeline = [
     { time: 14500, transition: true }
 ];
 
-let currentText = ["LOADING REPO ASSETS..."];
+let currentText = ["LOADING ENGINE ASSETS..."];
 let drawNewgroundsLogo = false;
 let startTime = null;
 
@@ -90,50 +88,54 @@ let dareBgOffset = 0;
 const DARE_BG_SPEED = 2;
 let lastBeatCheck = 0;
 
-// --- ASSET PRELOADER ENGINE ---
+// --- LOCAL ASSET PRELOADER ---
 async function preloadAssets() {
     try {
-        // 1. Fetch images asynchronously
         const loadImg = (img, src) => new Promise((resolve) => {
-            img.crossOrigin = "anonymous";
             img.src = src;
             img.onload = () => resolve();
-            img.onerror = () => { console.warn("Could not load texture:", src); resolve(); };
+            img.onerror = () => { 
+                console.warn("Skipping image (using text fallback):", src); 
+                resolve(); 
+            };
         });
 
+        // Load images locally from assets/images/menus/
         await Promise.all([
             loadImg(assets.ngImage, ASSET_PATHS.ngLogo),
-            loadImg(assets.logoImage, ASSET_PATHS.logoPng),
-            loadImg(assets.bgImage, 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/stageback.png')
+            loadImg(assets.logoImage, ASSET_PATHS.logoPng)
         ]);
 
-        // 2. Fetch and Parse Sparrow v2 XML layout
-        const response = await fetch(ASSET_PATHS.logoXml);
-        const xmlText = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-        const subTextures = xmlDoc.getElementsByTagName("SubTexture");
+        // Fetch and Parse local XML file
+        try {
+            const response = await fetch(ASSET_PATHS.logoXml);
+            if (response.ok) {
+                const xmlText = await response.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                const subTextures = xmlDoc.getElementsByTagName("SubTexture");
 
-        for (let i = 0; i < subTextures.length; i++) {
-            let frame = subTextures[i];
-            assets.logoFrames.push({
-                name: frame.getAttribute("name"),
-                x: parseInt(frame.getAttribute("x")),
-                y: parseInt(frame.getAttribute("y")),
-                width: parseInt(frame.getAttribute("width")),
-                height: parseInt(frame.getAttribute("height")),
-                frameX: parseInt(frame.getAttribute("frameX") || 0),
-                frameY: parseInt(frame.getAttribute("frameY") || 0)
-            });
+                for (let i = 0; i < subTextures.length; i++) {
+                    let frame = subTextures[i];
+                    assets.logoFrames.push({
+                        name: frame.getAttribute("name"),
+                        x: parseInt(frame.getAttribute("x")),
+                        y: parseInt(frame.getAttribute("y")),
+                        width: parseInt(frame.getAttribute("width")),
+                        height: parseInt(frame.getAttribute("height")),
+                        frameX: parseInt(frame.getAttribute("frameX") || 0),
+                        frameY: parseInt(frame.getAttribute("frameY") || 0)
+                    });
+                }
+            }
+        } catch (xmlError) {
+            console.warn("XML parsing failed, using text logo fallback:", xmlError);
         }
-
-        console.log(`Assets loaded from repo! Parsed ${assets.logoFrames.length} animation frames.`);
         
-        // Begin the intro sequencing loop!
         currentState = STATES.INTRO;
         currentText = [];
     } catch (e) {
-        console.error("Asset system breakdown, forcing start:", e);
+        console.error("Forcing engine start:", e);
         currentState = STATES.INTRO;
         currentText = [];
     }
@@ -167,22 +169,20 @@ function update(currentTime) {
         dareBgOffset -= DARE_BG_SPEED;
         if (dareBgOffset <= -1280) dareBgOffset = 0;
 
-        // Sync 120 BPM Bump beat (every 500ms)
         let currentBeatCheck = Math.floor(elapsed / 500);
         if (currentBeatCheck > lastBeatCheck) {
             isAnimatingLogo = true;
-            currentFrameIndex = 0; // Reset animation to start frame on bump
+            currentFrameIndex = 0; 
             lastBeatCheck = currentBeatCheck;
         }
 
-        // Animate the frames sequentially at 24fps
         if (isAnimatingLogo && assets.logoFrames.length > 0) {
-            animationTimer += 16.67; // approx ms per frame delta loop
+            animationTimer += 16.67; 
             if (animationTimer >= FRAME_RATE) {
                 animationTimer = 0;
                 currentFrameIndex++;
                 if (currentFrameIndex >= assets.logoFrames.length) {
-                    currentFrameIndex = assets.logoFrames.length - 1; // hold last frame
+                    currentFrameIndex = assets.logoFrames.length - 1; 
                     isAnimatingLogo = false; 
                 }
             }
@@ -211,46 +211,39 @@ function draw() {
         });
 
         if (drawNewgroundsLogo && assets.ngImage.complete && assets.ngImage.width > 0) {
-            try {
-                let size = 150;
-                ctx.drawImage(assets.ngImage, canvas.width / 2 - (size / 2), startY + (currentText.length * 75) + 20, size, size);
-            } catch (e) {
-                console.warn(e);
-            }
+            let size = 150;
+            ctx.drawImage(assets.ngImage, canvas.width / 2 - (size / 2), startY + (currentText.length * 75) + 20, size, size);
         }
     } 
     else if (currentState === STATES.TITLE_SCREEN) {
-        // 1. Background
-        if (assets.bgImage.complete && assets.bgImage.width > 0) {
-            ctx.drawImage(assets.bgImage, dareBgOffset, 0, 1280, 720);
-            ctx.drawImage(assets.bgImage, dareBgOffset + canvas.width, 0, 1280, 720);
+        // Sliding Dare Screen Grid Placeholder
+        ctx.fillStyle = '#330033';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#470047';
+        for (let i = 0; i < canvas.width + 100; i += 100) {
+            ctx.fillRect(i + (dareBgOffset % 100), 0, 15, canvas.height);
         }
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // 2. Advanced XML Animated Bumping Logo Rendering
+        // Render Animated XML Logo or Text Fallback
         if (assets.logoImage.complete && assets.logoFrames.length > 0) {
             const frame = assets.logoFrames[currentFrameIndex];
-            
             ctx.save();
-            // Centers the parsed sprite dynamically on screen
             ctx.translate(canvas.width / 2 - (frame.width / 2) - frame.frameX, canvas.height / 2 - (frame.height / 2) - frame.frameY - 60);
-            
             ctx.drawImage(
                 assets.logoImage,
-                frame.x, frame.y, frame.width, frame.height, // Source frame bounding dimensions
-                0, 0, frame.width, frame.height             // Canvas output scale mapping
+                frame.x, frame.y, frame.width, frame.height,
+                0, 0, frame.width, frame.height
             );
             ctx.restore();
         } else {
-            // Text fallback if network fetch fails
             ctx.fillStyle = '#FFF100';
             ctx.font = '90px "Phantommuff", sans-serif';
             ctx.fillText("PULSE ENGINE", canvas.width / 2, canvas.height / 2 - 60);
         }
 
-        // 3. UI
         ctx.font = '42px "Phantommuff", sans-serif';
         ctx.fillStyle = '#FFFFFF';
         ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 110);
@@ -267,7 +260,7 @@ function advanceScreen() {
     if (currentState === STATES.INTRO) {
         currentState = STATES.TITLE_SCREEN;
     } else if (currentState === STATES.TITLE_SCREEN) {
-        console.log("Assets loaded, routing to mainmenu.js state!");
+        console.log("Routing to gameloop/mainmenu.js next!");
     }
 }
 
@@ -280,7 +273,6 @@ canvas.addEventListener('click', () => {
     advanceScreen();
 });
 
-// Kickstart asset loader preflight, then hook execution loop
 preloadAssets();
 requestAnimationFrame(gameLoop);
 </script>
