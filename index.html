@@ -35,72 +35,118 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-const STATES = { INTRO: 0, TITLE_SCREEN: 1 };
-let currentState = STATES.INTRO;
+const STATES = { LOADING: -1, INTRO: 0, TITLE_SCREEN: 1 };
+let currentState = STATES.LOADING;
+
+// --- CDN PATHS (Your Repo) ---
+const REPO_URL = "https://cdn.jsdelivr.net/gh/CJTG999/FWPEIHTML/";
+const ASSET_PATHS = {
+    ngLogo: REPO_URL + "assets/images/newgrounds_logo.png",
+    logoPng: REPO_URL + "assets/images/logoBumpin.png",
+    logoXml: REPO_URL + "assets/images/logoBumpin.xml"
+};
+
+// --- ENGINE SYSTEM ASSETS ---
+const assets = {
+    ngImage: new Image(),
+    logoImage: new Image(),
+    logoFrames: [], // Parsed XML frames go here
+    bgImage: new Image() // Temp fallback background
+};
+
+// --- ANIMATION TRACKING ---
+let currentFrameIndex = 0;
+let isAnimatingLogo = false;
+let animationTimer = 0;
+const FRAME_RATE = 1000 / 24; // 24 FPS animation speed
 
 // --- 25% CHANCE EASTER EGG ---
 const isEasterEgg = Math.random() < 0.25;
 const finalTitleDrop = isEasterEgg ? ["USE", "DFJK", "LOL"] : ["FNF", "PULSE", "ENGINE"];
 
-// --- PRECISE MILLISECOND TIMELINE ---
-// Delays: 1.75s between lines, 0.5s between sections, 0.5s between final drops
+// --- PRECISE TIMELINE ---
 const introTimeline = [
-    // Section 1
     { time: 500,  text: ["Created By"], showNG: false },
-    { time: 2250, text: ["Created By", "CJTG999"], showNG: false }, // +1.75s
-    { time: 3750, text: [], showNG: false },                        // +1.5s clear screen
-
-    // Section 2
-    { time: 4250, text: ["Not Associated With"], showNG: false },   // +0.5s section delay
-    { time: 6000, text: ["Not Associated With", "Newgrounds"], showNG: true }, // +1.75s
-    { time: 7500, text: [], showNG: false },                        // +1.5s clear screen
-
-    // Section 3
-    { time: 8000, text: ["Pure HTML"], showNG: false },             // +0.5s section delay
-    { time: 9750, text: ["Pure HTML", "No Haxe in sight"], showNG: false }, // +1.75s
-    { time: 11250, text: [], showNG: false },                       // +1.5s clear screen
-
-    // Section 4: Title Drop (0.5s delays)
-    { time: 11750, text: [finalTitleDrop[0]], showNG: false },      // +0.5s section delay
-    { time: 12250, text: [finalTitleDrop[0], finalTitleDrop[1]], showNG: false }, // +0.5s
-    { time: 12750, text: [finalTitleDrop[0], finalTitleDrop[1], finalTitleDrop[2]], showNG: false }, // +0.5s
-    { time: 14500, transition: true }                               // Move to main screen
+    { time: 2250, text: ["Created By", "CJTG999"], showNG: false },
+    { time: 3750, text: [], showNG: false },
+    { time: 4250, text: ["Not Associated With"], showNG: false },
+    { time: 6000, text: ["Not Associated With", "Newgrounds"], showNG: true },
+    { time: 7500, text: [], showNG: false },
+    { time: 8000, text: ["Pure HTML"], showNG: false },
+    { time: 9750, text: ["Pure HTML", "No Haxe in sight"], showNG: false },
+    { time: 11250, text: [], showNG: false },
+    { time: 11750, text: [finalTitleDrop[0]], showNG: false },
+    { time: 12250, text: [finalTitleDrop[0], finalTitleDrop[1]], showNG: false },
+    { time: 12750, text: [finalTitleDrop[0], finalTitleDrop[1], finalTitleDrop[2]], showNG: false },
+    { time: 14500, transition: true }
 ];
 
-let currentText = [];
+let currentText = ["LOADING REPO ASSETS..."];
 let drawNewgroundsLogo = false;
 let startTime = null;
 
 // --- TITLE SCREEN VISUALS ---
-let logoScale = 1.0;
 let dareBgOffset = 0;
 const DARE_BG_SPEED = 2;
 let lastBeatCheck = 0;
 
-// --- ASSET LOADING ---
-const assets = {
-    ngImage: new Image(),
-    logoImage: new Image(),
-    bgImage: new Image()
-};
+// --- ASSET PRELOADER ENGINE ---
+async function preloadAssets() {
+    try {
+        // 1. Fetch images asynchronously
+        const loadImg = (img, src) => new Promise((resolve) => {
+            img.crossOrigin = "anonymous";
+            img.src = src;
+            img.onload = () => resolve();
+            img.onerror = () => { console.warn("Could not load texture:", src); resolve(); };
+        });
 
-// Standard web-fallback assets
-assets.ngImage.crossOrigin = "anonymous";
-assets.ngImage.src = 'https://pins.newgrounds.com/images/pins/classic-tank.png'; // Direct link to classic tank icon
+        await Promise.all([
+            loadImg(assets.ngImage, ASSET_PATHS.ngLogo),
+            loadImg(assets.logoImage, ASSET_PATHS.logoPng),
+            loadImg(assets.bgImage, 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/stageback.png')
+        ]);
 
-assets.logoImage.crossOrigin = "anonymous";
-assets.logoImage.src = 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/logoBumpin.png';
+        // 2. Fetch and Parse Sparrow v2 XML layout
+        const response = await fetch(ASSET_PATHS.logoXml);
+        const xmlText = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+        const subTextures = xmlDoc.getElementsByTagName("SubTexture");
 
-assets.bgImage.crossOrigin = "anonymous";
-assets.bgImage.src = 'https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/images/stageback.png';
+        for (let i = 0; i < subTextures.length; i++) {
+            let frame = subTextures[i];
+            assets.logoFrames.push({
+                name: frame.getAttribute("name"),
+                x: parseInt(frame.getAttribute("x")),
+                y: parseInt(frame.getAttribute("y")),
+                width: parseInt(frame.getAttribute("width")),
+                height: parseInt(frame.getAttribute("height")),
+                frameX: parseInt(frame.getAttribute("frameX") || 0),
+                frameY: parseInt(frame.getAttribute("frameY") || 0)
+            });
+        }
+
+        console.log(`Assets loaded from repo! Parsed ${assets.logoFrames.length} animation frames.`);
+        
+        // Begin the intro sequencing loop!
+        currentState = STATES.INTRO;
+        currentText = [];
+    } catch (e) {
+        console.error("Asset system breakdown, forcing start:", e);
+        currentState = STATES.INTRO;
+        currentText = [];
+    }
+}
 
 // --- ENGINE LOOPS ---
 function update(currentTime) {
+    if (currentState === STATES.LOADING) return;
+
     if (!startTime) startTime = currentTime;
     const elapsed = currentTime - startTime;
 
     if (currentState === STATES.INTRO) {
-        // Find the most recent timeline event that matches our current time
         let activeEvent = null;
         for (let i = 0; i < introTimeline.length; i++) {
             if (elapsed >= introTimeline[i].time) {
@@ -121,28 +167,42 @@ function update(currentTime) {
         dareBgOffset -= DARE_BG_SPEED;
         if (dareBgOffset <= -1280) dareBgOffset = 0;
 
-        // Fake a steady 120 BPM bump rhythm (every 500ms)
+        // Sync 120 BPM Bump beat (every 500ms)
         let currentBeatCheck = Math.floor(elapsed / 500);
         if (currentBeatCheck > lastBeatCheck) {
-            logoScale = 1.18; // Bump!
+            isAnimatingLogo = true;
+            currentFrameIndex = 0; // Reset animation to start frame on bump
             lastBeatCheck = currentBeatCheck;
         }
 
-        logoScale += (1.0 - logoScale) * 0.15;
+        // Animate the frames sequentially at 24fps
+        if (isAnimatingLogo && assets.logoFrames.length > 0) {
+            animationTimer += 16.67; // approx ms per frame delta loop
+            if (animationTimer >= FRAME_RATE) {
+                animationTimer = 0;
+                currentFrameIndex++;
+                if (currentFrameIndex >= assets.logoFrames.length) {
+                    currentFrameIndex = assets.logoFrames.length - 1; // hold last frame
+                    isAnimatingLogo = false; 
+                }
+            }
+        }
     }
 }
 
 function draw() {
-    // Clear Canvas
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Font Defaults
     ctx.font = '55px "Phantommuff", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    if (currentState === STATES.INTRO) {
+    if (currentState === STATES.LOADING) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(currentText[0], canvas.width / 2, canvas.height / 2);
+    }
+    else if (currentState === STATES.INTRO) {
         ctx.fillStyle = '#FFFFFF';
         let startY = canvas.height / 2 - (currentText.length * 35);
         
@@ -150,45 +210,47 @@ function draw() {
             ctx.fillText(line, canvas.width / 2, startY + (index * 75));
         });
 
-        // Safe Image Draw (Won't crash engine if image fails to download)
         if (drawNewgroundsLogo && assets.ngImage.complete && assets.ngImage.width > 0) {
             try {
-                let size = 120; // square tank icon size
+                let size = 150;
                 ctx.drawImage(assets.ngImage, canvas.width / 2 - (size / 2), startY + (currentText.length * 75) + 20, size, size);
             } catch (e) {
-                console.warn("Failed to render NG image placeholder safely:", e);
+                console.warn(e);
             }
         }
-
-    } else if (currentState === STATES.TITLE_SCREEN) {
-        // 1. Background Layer
+    } 
+    else if (currentState === STATES.TITLE_SCREEN) {
+        // 1. Background
         if (assets.bgImage.complete && assets.bgImage.width > 0) {
             ctx.drawImage(assets.bgImage, dareBgOffset, 0, 1280, 720);
             ctx.drawImage(assets.bgImage, dareBgOffset + canvas.width, 0, 1280, 720);
-        } else {
-            ctx.fillStyle = '#330033';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        // Dark dim overlay
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // 2. Logo Layer
-        ctx.save();
-        ctx.translate(canvas.width / 2, canvas.height / 2 - 60);
-        ctx.scale(logoScale, logoScale);
-        
-        if (assets.logoImage.complete && assets.logoImage.width > 0) {
-            ctx.drawImage(assets.logoImage, -350, -200, 700, 400);
+        // 2. Advanced XML Animated Bumping Logo Rendering
+        if (assets.logoImage.complete && assets.logoFrames.length > 0) {
+            const frame = assets.logoFrames[currentFrameIndex];
+            
+            ctx.save();
+            // Centers the parsed sprite dynamically on screen
+            ctx.translate(canvas.width / 2 - (frame.width / 2) - frame.frameX, canvas.height / 2 - (frame.height / 2) - frame.frameY - 60);
+            
+            ctx.drawImage(
+                assets.logoImage,
+                frame.x, frame.y, frame.width, frame.height, // Source frame bounding dimensions
+                0, 0, frame.width, frame.height             // Canvas output scale mapping
+            );
+            ctx.restore();
         } else {
+            // Text fallback if network fetch fails
             ctx.fillStyle = '#FFF100';
             ctx.font = '90px "Phantommuff", sans-serif';
-            ctx.fillText("PULSE ENGINE", 0, 0);
+            ctx.fillText("PULSE ENGINE", canvas.width / 2, canvas.height / 2 - 60);
         }
-        ctx.restore();
 
-        // 3. UI Prompt Text
+        // 3. UI
         ctx.font = '42px "Phantommuff", sans-serif';
         ctx.fillStyle = '#FFFFFF';
         ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 110);
@@ -205,7 +267,7 @@ function advanceScreen() {
     if (currentState === STATES.INTRO) {
         currentState = STATES.TITLE_SCREEN;
     } else if (currentState === STATES.TITLE_SCREEN) {
-        console.log("Ready to initialize mainmenu.js script routing!");
+        console.log("Assets loaded, routing to mainmenu.js state!");
     }
 }
 
@@ -214,9 +276,12 @@ window.addEventListener('keydown', (e) => {
 });
 
 canvas.addEventListener('click', () => {
+    if (currentState === STATES.LOADING) return;
     advanceScreen();
 });
 
+// Kickstart asset loader preflight, then hook execution loop
+preloadAssets();
 requestAnimationFrame(gameLoop);
 </script>
 
