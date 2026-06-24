@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse Engine - PEM Converter Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0214;
+            color: #fff;
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .converter-card {
+            background-color: #160726;
+            border: 2px solid #39005c;
+            border-radius: 12px;
+            padding: 30px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 0 25px rgba(0,0,0,0.6);
+        }
+
+        h2 {
+            color: #fff100;
+            margin-top: 0;
+            font-size: 28px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #d1b3ff;
+        }
+
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            background-color: #0b0214;
+            border: 1px solid #540087;
+            border-radius: 6px;
+            color: white;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background-color: #a300bc;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #cd00ed;
+        }
+
+        #statusLog {
+            margin-top: 25px;
+            background-color: #05000a;
+            border: 1px solid #220038;
+            border-radius: 6px;
+            padding: 15px;
+            height: 180px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            color: #33ff33;
+        }
+    </style>
+</head>
+<body>
+
+<div class="converter-card">
+    <h2>Pulse Engine - PEM Converter</h2>
+    <p style="color: #aaa; font-size: 14px;">Convert VSlice modpacks into unified .pem game packages natively.</p>
+    <hr style="border-color: #39005c; margin-bottom: 25px;">
+
+    <div class="form-group">
+        <label for="modpackFile">Select Modpack Zip Archive:</label>
+        <input type="file" id="modpackFile" accept=".zip">
+    </div>
+
+    <div class="form-group">
+        <label for="songNames">Target Song Names (comma separated):</label>
+        <input type="text" id="songNames" placeholder="e.g., bopeebo, fresh, dadbattle">
+    </div>
+
+    <button id="convertBtn">GENERATE PULSE ENGINE MODPACK (.PEM)</button>
+
+    <div id="statusLog">System ready. Awaiting file input mapping...</div>
+</div>
+
+<script>
+const logEl = document.getElementById('statusLog');
+const convertBtn = document.getElementById('convertBtn');
+
+function log(msg, isError = false) {
+    const time = new Date().toLocaleTimeString();
+    logEl.innerHTML += `<div style="color: ${isError ? '#ff3333' : '#33ff33'}">[${time}] ${msg}</div>`;
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+convertBtn.addEventListener('click', async () => {
+    const fileInput = document.getElementById('modpackFile').files[0];
+    const songInput = document.getElementById('songNames').value;
+
+    if (!fileInput || !songInput) {
+        log("Error: Please select a modpack zip and input at least one target song name.", true);
+        return;
+    }
+
+    const targetSongs = songInput.split(',').map(s => s.trim().toLowerCase().replace(/\s+/g, '-'));
+    log("Initializing in-browser compiler workflow...");
+
+    try {
+        const zip = await JSZip.loadAsync(fileInput);
+        const outputZip = new JSZip();
+        outputZip.file("songlist.txt", targetSongs.join('\n'));
+
+        // Initialize Web Audio Context for internal stem mixing track processing
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        for (const song of targetSongs) {
+            log(`Searching paths for track: [${song}]`);
+            
+            // 1. Locate V-Slice data folder structures
+            let dataFolderPrefix = "";
+            let dataFound = false;
+            
+            zip.forEach((relativePath, file) => {
+                if (!dataFound && relativePath.includes(`data/songs/${song}/`)) {
+                    // Extract root paths if structural zipping is offset
+                    const index = relativePath.indexOf(`data/songs/${song}/`);
+                    dataFolderPrefix = relativePath.substring(0, index) + `data/songs/${song}/`;
+                    dataFound = true;
+                }
+            });
+
+            if (!dataFound) {
+                log(`Skipping "${song}": Could not locate data map tracks at data/songs/${song}/`, true);
+                continue;
+            }
+
+            // Map and collect variants found via file schema iterations
+            let versions = {};
+            zip.folder(dataFolderPrefix).forEach((relativePath, file) => {
+                if (relativePath.endsWith('.json') && !relativePath.includes('metadata')) {
+                    const cleanName = relativePath.replace('.json', '');
+                    const parts = cleanName.split('-');
+                    
+                    let version = "default";
+                    let difficulty = "normal";
+
+                    if (parts.includes('chart')) {
+                        const idx = parts.indexof('chart');
+                        const variantParts = parts.slice(idx + 1);
+                        if (variantParts.length > 0) {
+                            version = variantParts[0];
+                            if (variantParts.length > 1) difficulty = variantParts[1];
+                        }
+                    } else {
+                        // Fallback check matching simpler direct layout naming specs
+                        if (parts.length > 1) difficulty = parts[parts.length - 1];
+                    }
+
+                    if (!versions[version]) versions[version] = [];
+                    versions[version].push({ file: file, difficulty: difficulty });
+                }
+            });
+
+            // Write version configurations and charts into output structure maps
+            const songFolder = outputZip.folder(song);
+            let versionsTxtLines = [];
+
+            for (const [version, charts] of Object.entries(versions)) {
+                let lineItems = [version];
+                for (const chartObj of charts) {
+                    const chartContent = await chartObj.file.async("text");
+                    songFolder.file(`${version}-${chartObj.difficulty}.json`, chartContent);
+                    lineItems.push(chartObj.difficulty);
+                }
+                versionsTxtLines.push(lineItems.join(', '));
+
+                // Audio Layer Stem Auto-Mixing via Browser Web Audio Channels
+                log(`Mixing audio stems for variant execution profile: [${version}]`);
+                
+                // Track down matching audio files inside song audio tracks
+                let audioFolderPrefix = dataFolderPrefix.replace('data/songs/', 'songs/');
+                let instFile = zip.file(`${audioFolderPrefix}Inst.ogg`);
+                if (version !== "default" && zip.file(`${audioFolderPrefix}Inst-${version}.ogg`)) {
+                    instFile = zip.file(`${audioFolderPrefix}Inst-${version}.ogg`);
+                }
+
+                if (instFile) {
+                    const instBuffer = await instFile.async("arraybuffer");
+                    const decodedInst = await audioCtx.decodeAudioData(instBuffer);
+
+                    // Scan vocal stem paths matching configurations
+                    let voiceFiles = [];
+                    zip.folder(audioFolderPrefix).forEach((relPath, file) => {
+                        if (relPath.includes('Voices') && relPath.endsWith('.ogg')) {
+                            if (version === "default" && !relPath.includes('-')) voiceFiles.push(file);
+                            else if (version !== "default" && relPath.includes(version)) voiceFiles.push(file);
+                        }
+                    });
+
+                    // Render out tracking down mix boundaries
+                    let buffersToMix = [decodedInst];
+                    for (const vFile of voiceFiles) {
+                        const vBuffer = await vFile.async("arraybuffer");
+                        try {
+                            const decodedVoice = await audioCtx.decodeAudioData(vBuffer);
+                            buffersToMix.push(decodedVoice);
+                        } catch(e) { log(`Skipping broken vocal stem: ${vFile.name}`, true); }
+                    }
+
+                    // Perform synchronous mathematical mix layer blending down into 1 standard output track buffer
+                    const mixedBuffer = mixBuffers(buffersToMix, audioCtx);
+                    const wavBlob = bufferToWav(mixedBuffer);
+                    
+                    // Save as .wav or .ogg inside file tracking loop container seamlessly
+                    songFolder.file(`${song}-${version}.wav`, wavBlob);
+                }
+            }
+
+            songFolder.file("versions.txt", versionsTxtLines.join('\n'));
+            log(`Completed compiling package folders for song target: ${song}`);
+        }
+
+        // Output and force system data packet transfer down to user client workspace downloads folder
+        log("Packing compiled assets into .pem file container...");
+        const content = await outputZip.generateAsync({ type: "blob" });
+        
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(content);
+        link.download = "songpack.pem";
+        link.click();
+        log("🎉 Conversion complete! Pack downloaded successfully.");
+
+    } catch (err) {
+        log(`Fatal compilation exception encountered: ${err.message}`, true);
+        console.error(err);
+    }
+});
+
+// Helper Function: Blends separate vocal and instrumental audio buffers together perfectly synced
+function mixBuffers(bufferList, audioCtx) {
+    let maxChannels = Math.max(...bufferList.map(b => b.numberOfChannels));
+    let maxLen = Math.max(...bufferList.map(b => b.length));
+    let sampleRate = audioCtx.sampleRate;
+    
+    let outBuffer = audioCtx.createBuffer(maxChannels, maxLen, sampleRate);
+    
+    for (let channel = 0; channel < maxChannels; channel++) {
+        let outData = outBuffer.getChannelData(channel);
+        for (let b = 0; b < bufferList.length; b++) {
+            if (channel < bufferList[b].numberOfChannels) {
+                let inData = bufferList[b].getChannelData(channel);
+                for (let i = 0; i < inData.length; i++) {
+                    outData[i] += inData[i]; // Matrix summation channel mixing
+                }
+            }
+        }
+    }
+    return outBuffer;
+}
+
+// Helper Function: Turns a raw AudioBuffer into a browser-standard downloadable WAV file
+function bufferToWav(buffer) {
+    let numOfChan = buffer.numberOfChannels,
+        length = buffer.length * numOfChan * 2 + 44,
+        bufferArr = new ArrayBuffer(length),
+        view = new DataView(bufferArr),
+        channels = [], i, sample,
+        offset = 0,
+        pos = 0;
+
+    function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
+    function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
+
+    setUint32(0x46464952); // "RIFF"
+    setUint32(length - 8); // file length - 8
+    setUint32(0x45564157); // "WAVE"
+    setUint32(0x20746d66); // "fmt " chunk
+    setUint32(16);         // chunk length
+    setUint16(1);          // sample format (raw PCM)
+    setUint16(numOfChan);
+    setUint32(buffer.sampleRate);
+    setUint32(buffer.sampleRate * numOfChan * 2); // byte rate
+    setUint16(numOfChan * 2);                     // block align
+    setUint16(16);                                // bits per sample
+    setUint32(0x61746164);                        // "data" chunk
+    setUint32(length - pos - 4);                  // chunk length
+
+    for (i = 0; i < buffer.numberOfChannels; i++) channels.push(buffer.getChannelData(i));
+
+    while (pos < length) {
+        for (i = 0; i < numOfChan; i++) {
+            sample = Math.max(-1, Math.min(1, channels[i][offset])); 
+            sample = (sample < 0 ? sample * 0x8000 : sample * 0x7FFF);
+            view.setInt16(pos, sample, true);
+            pos += 2;
+        }
+        offset++;
+    }
+    return new Blob([bufferArr], { type: "audio/wav" });
+}
+</script>
+</body>
+</html>
