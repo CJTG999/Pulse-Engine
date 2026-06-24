@@ -3,267 +3,215 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pulse Engine - Fixed Animation Layout</title>
+    <title>FNF Web Engine v6</title>
+    <link rel="icon" type="image/png" href="https://codehs.com/uploads/7af8d08ec70df2a16ebe56b6f67691e9">
+    <!-- JSZip for dynamic PEM and preset zip compression handling -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
+        :root { --bg: #050505; --panel: #111; --text: #eee; --accent: #38EF7D; --secondary: #00D2FF; --error: #ff4b2b; --sidebar-width: 320px; }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        #sidebar { width: var(--sidebar-width); background: var(--panel); border-right: 1px solid #222; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; overflow-y: auto; z-index: 100; }
+        .section-header { font-size: 10px; color: #555; text-transform: uppercase; font-weight: 800; margin: 20px 0 10px 0; border-bottom: 1px solid #222; padding-bottom: 4px; }
+        .input-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; }
+        label { font-size: 11px; font-weight: bold; color: #999; display: flex; justify-content: space-between; }
+        select, input, button.menu-btn { background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 6px; font-size: 12px; cursor: pointer; width: 100%; box-sizing: border-box; transition: all 0.2s; }
+        button.menu-btn:hover { border-color: var(--accent); background: #222; }
+        .keybind-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+        .keybind-grid input { text-align: center; padding: 5px; text-transform: uppercase; }
+        .color-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+        .color-grid input[type="color"] { padding: 2px; height: 30px; border: none; background: none; }
+        #main-stage { flex-grow: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
+        canvas { width: 100%; height: 100%; object-fit: contain; background: #000; }
+        
+        /* Overlays */
+        .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 50; transition: opacity 0.3s ease; }
+        .overlay.hidden { opacity: 0; pointer-events: none; }
+        
+        /* Preloader Screen */
+        #init-screen { position: fixed; inset: 0; background: #050505; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s ease; }
+        .progress-bar-container { width: 300px; height: 8px; background: #222; border-radius: 4px; overflow: hidden; margin-top: 20px; box-shadow: inset 0 0 5px rgba(0,0,0,0.5); }
+        .progress-fill { width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease; box-shadow: 0 0 10px var(--accent); }
+        
+        .btn-start { padding: 20px 60px; font-size: 24px; font-weight: 900; background: var(--accent); color: #000; border: none; border-radius: 12px; cursor: pointer; transition: transform 0.2s; }
+        .btn-start:hover:not(:disabled) { transform: scale(1.05); }
+        .btn-start:disabled { background: #333; color: #666; cursor: not-allowed; }
+        .hidden-ui { display: none !important; }
+        #toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: #000; padding: 12px 24px; border-radius: 8px; font-weight: bold; transform: translateY(100px); transition: transform 0.3s; z-index: 1000; }
+        #toast.show { transform: translateY(0); }
+        body.showcase-active #sidebar { display: none !important; }
+        body.showcase-active #toast { display: none !important; }
+        body.showcase-active #main-stage { width: 100vw; height: 100vh; }
+        .allerta-stencil-regular { font-family: "Allerta Stencil", sans-serif; font-weight: 400; font-style: normal; }
+
+        /* Caption Container */
+        #caption-container {
+            position: absolute;
+            bottom: 12%;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+            z-index: 60;
+        }
+        #caption-text {
+            font-family: 'Inter', sans-serif;
+            font-size: 26px;
+            font-weight: 800;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.5);
+            padding: 4px 16px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        /* Load main.ttf font from data/fonts directory */
         @font-face {
             font-family: 'Phantommuff';
-            src: url('fonts/main.ttf') format('truetype'),
+            src: url('data/fonts/main.ttf') format('truetype'),
                  url('https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/fnf0.7.5/assets/fonts/vcr.ttf') format('truetype');
-        }
-
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #000;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-        }
-
-        canvas {
-            background-color: #000;
-            box-shadow: 0 0 20px rgba(0,0,0,0.8);
         }
     </style>
 </head>
 <body>
 
-<canvas id="gameCanvas" width="1280" height="720"></canvas>
+<div id="init-screen">
+    <h1 style="color: var(--accent); margin: 0; font-family: 'Allerta Stencil', monospace; letter-spacing: 2px;">FNF WEB ENGINE</h1>
+    <div class="progress-bar-container">
+        <div id="init-progress" class="progress-fill"></div>
+    </div>
+    <p id="init-text" style="color: #888; font-size: 11px; margin-top: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Waking up Audio Context...</p>
+</div>
 
-<script>
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-const STATES = { LOADING: -1, INTRO: 0, TITLE_SCREEN: 1 };
-let currentState = STATES.LOADING;
-
-const ASSET_PATHS = {
-    ngLogo: "images/menus/newgrounds_logo.png",
-    logoPng: "images/menus/logoBumpin.png",
-    logoXml: "images/menus/logoBumpin.xml"
-};
-
-const assets = {
-    ngImage: new Image(),
-    logoImage: new Image(),
-    logoFrames: []
-};
-
-// --- ANIMATION SYSTEM ---
-let currentFrameIndex = 0;
-let isAnimatingLogo = false;
-let animationTimer = 0;
-const FRAME_RATE = 1000 / 24; 
-let logoScale = 1.0;
-
-const isEasterEgg = Math.random() < 0.25;
-const finalTitleDrop = isEasterEgg ? ["USE", "DFJK", "LOL"] : ["FNF", "PULSE", "ENGINE"];
-
-const introTimeline = [
-    { time: 500,  text: ["Created By"], showNG: false },
-    { time: 2250, text: ["Created By", "CJTG999"], showNG: false },
-    { time: 3750, text: [], showNG: false },
-    { time: 4250, text: ["Not Associated With"], showNG: false },
-    { time: 6000, text: ["Not Associated With", "Newgrounds"], showNG: true },
-    { time: 7500, text: [], showNG: false },
-    { time: 8000, text: ["Pure HTML"], showNG: false },
-    { time: 9750, text: ["Pure HTML", "No Haxe in sight"], showNG: false },
-    { time: 11250, text: [], showNG: false },
-    { time: 11750, text: [finalTitleDrop[0]], showNG: false },
-    { time: 12250, text: [finalTitleDrop[0], finalTitleDrop[1]], showNG: false },
-    { time: 12750, text: [finalTitleDrop[0], finalTitleDrop[1], finalTitleDrop[2]], showNG: false },
-    { time: 14500, transition: true }
-];
-
-let currentText = ["INITIALIZING ASSETS..."];
-let drawNewgroundsLogo = false;
-let startTime = null;
-
-let dareBgOffset = 0;
-const DARE_BG_SPEED = 2;
-let lastBeatCheck = 0;
-
-async function preloadAssets() {
-    const loadImg = (img, src) => new Promise((resolve) => {
-        img.src = src;
-        img.onload = () => resolve();
-        img.onerror = () => resolve(); 
-    });
-
-    await Promise.all([
-        loadImg(assets.ngImage, ASSET_PATHS.ngLogo),
-        loadImg(assets.logoImage, ASSET_PATHS.logoPng)
-    ]);
-
-    try {
-        const response = await fetch(ASSET_PATHS.logoXml);
-        if (response.ok) {
-            const xmlText = await response.text();
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-            const subTextures = xmlDoc.getElementsByTagName("SubTexture");
-
-            for (let i = 0; i < subTextures.length; i++) {
-                let frame = subTextures[i];
-                // Math.abs handles negative/positive offset coordinate standards in OpenFL sheets
-                assets.logoFrames.push({
-                    name: frame.getAttribute("name"),
-                    x: parseInt(frame.getAttribute("x")),
-                    y: parseInt(frame.getAttribute("y")),
-                    width: parseInt(frame.getAttribute("width")),
-                    height: parseInt(frame.getAttribute("height")),
-                    frameX: Math.abs(parseInt(frame.getAttribute("frameX") || 0)),
-                    frameY: Math.abs(parseInt(frame.getAttribute("frameY") || 0))
-                });
-            }
-        }
-    } catch (e) { console.warn("XML Loader bypass."); }
+<div id="sidebar">
+    <h2 style="color: var(--accent); margin: 0 0 20px 0; font-family: .allerta-stencil-regular">FNF WEB ENGINE</h2>
     
-    currentState = STATES.INTRO;
-    currentText = [];
-}
+    <span class="section-header">Volumes</span>
+    <div class="input-group">
+        <label>Instrumental <span id="vol-inst-val">50%</span></label>
+        <input type="range" id="vol-inst" min="0" max="1" step="0.05" value="0.5">
+        <label>Vocals <span id="vol-voc-val">50%</span></label>
+        <input type="range" id="vol-voc" min="0" max="1" step="0.05" value="0.5">
+        <label>Hit Sounds <span id="vol-hit-val">35%</span></label>
+        <input type="range" id="vol-hit" min="0" max="1" step="0.05" value="0.35">
+    </div>
 
-function update(currentTime) {
-    if (currentState === STATES.LOADING) return;
+    <span class="section-header">Preset Manager</span>
+    <div class="input-group">
+        <label>Select Preset</label>
+        <select id="preset-select">
+            <option value="">-- Loading ZIP... --</option>
+        </select>
+    </div>
 
-    if (!startTime) startTime = currentTime;
-    const elapsed = currentTime - startTime;
+    <span class="section-header">Manual Imports</span>
+    <div class="input-group">
+        <label style="color: var(--accent);">Upload PEM Modpack (.pem)</label>
+        <input type="file" id="pem-up" accept=".pem">
+    </div>
+    <div class="input-group">
+        <label>Upload ZIP (all files)</label>
+        <input type="file" id="zip-up" accept=".zip">
+    </div>
+    <div class="input-group">
+        <label>Instrumental</label>
+        <input type="file" id="inst-up" accept="audio/*">
+    </div>
+    <div class="input-group">
+        <label>Vocals</label>
+        <input type="file" id="voc-up" accept="audio/*">
+    </div>
+    <div class="input-group">
+        <label>Chart (.json)</label>
+        <input type="file" id="chart-up" accept=".json">
+    </div>
 
-    if (currentState === STATES.INTRO) {
-        let activeEvent = null;
-        for (let i = 0; i < introTimeline.length; i++) {
-            if (elapsed >= introTimeline[i].time) {
-                activeEvent = introTimeline[i];
-            }
-        }
-        if (activeEvent) {
-            if (activeEvent.transition) {
-                currentState = STATES.TITLE_SCREEN;
-            } else {
-                currentText = activeEvent.text;
-                drawNewgroundsLogo = activeEvent.showNG;
-            }
-        }
-    } 
-    else if (currentState === STATES.TITLE_SCREEN) {
-        dareBgOffset -= DARE_BG_SPEED;
-        if (dareBgOffset <= -1280) dareBgOffset = 0;
+    <span class="section-header">Gameplay Settings</span>
+    <div class="input-group">
+        <label>Note Type</label>
+        <select id="note-style-select">
+            <option value="circle">Circles</option>
+            <option value="square">Squares</option>
+            <option value="triangle">Triangles</option>
+            <option value="arrows" selected>Arrows</option>
+        </select>
+    </div>
 
-        let currentBeatCheck = Math.floor(elapsed / 500);
-        if (currentBeatCheck > lastBeatCheck) {
-            isAnimatingLogo = true;
-            currentFrameIndex = 0; 
-            logoScale = 1.15; // Smooth engine scale pop
-            lastBeatCheck = currentBeatCheck;
-        }
+    <div id="arrow-colors-ui" class="input-group">
+        <label>Colors (L, D, U, R)</label>
+        <div class="color-grid">
+            <input type="color" id="color-0" value="#C2439E">
+            <input type="color" id="color-1" value="#00FFFF">
+            <input type="color" id="color-2" value="#12FA05">
+            <input type="color" id="color-3" value="#F9393F">
+        </div>
+    </div>
 
-        logoScale += (1.0 - logoScale) * 0.12;
+    <span class="section-header">Controls</span>
+    <div class="input-group">
+        <label>Keybinds</label>
+        <div class="keybind-grid">
+            <input type="text" id="key-0" value="D" maxlength="1">
+            <input type="text" id="key-1" value="F" maxlength="1">
+            <input type="text" id="key-2" value="J" maxlength="1">
+            <input type="text" id="key-3" value="K" maxlength="1">
+        </div>
+    </div>
 
-        if (isAnimatingLogo && assets.logoFrames.length > 0) {
-            animationTimer += 16.67; 
-            if (animationTimer >= FRAME_RATE) {
-                animationTimer = 0;
-                currentFrameIndex++;
-                if (currentFrameIndex >= assets.logoFrames.length) {
-                    currentFrameIndex = 0; // Loop back or hold base frame
-                    isAnimatingLogo = false; 
-                }
-            }
-        }
-    }
-}
+    <div class="input-group">
+        <button id="arrow-toggle" class="menu-btn">CONTROL: LETTERS</button>
+        <button id="scroll-toggle" class="menu-btn">DOWNSCROLL: ON</button>
+        <button id="middle-toggle" class="menu-btn">MIDDLESCROLL: OFF</button>
+        <button id="bot-toggle" class="menu-btn">BOTPLAY: OFF</button>
+        <button id="hitsound-toggle" class="menu-btn">HIT SOUNDS: ON</button>
+        <button id="ghost-toggle" class="menu-btn">GHOST TAPPING: ON</button>
+    </div>
+    
+    <div class="input-group">
+        <label>Scroll Speed: <span id="speed-val">2.5</span></label>
+        <input type="range" id="speed-slider" min="1" max="5" step="0.1" value="2.5">
+    </div>
 
-function draw() {
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    <span class="section-header" style="color: #00D2FF;">Experimental</span>
+    <div class="input-group">
+        <button id="bf-toggle" class="menu-btn" style="border-color: #00D2FF;">BF MODE: OFF</button>
+    </div>
 
-    ctx.font = '55px "Phantommuff", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    if (currentState === STATES.INTRO) {
-        ctx.fillStyle = '#FFFFFF';
-        let startY = canvas.height / 2 - (currentText.length * 35);
+    <div class="input-group" id="custom-char-ui">
+        <label style="color: var(--secondary); font-weight: 900;">Upload Character Folder</label>
+        <input type="file" id="char-folder-up" webkitdirectory directory>
         
-        currentText.forEach((line, index) => {
-            ctx.fillText(line, canvas.width / 2, startY + (index * 75));
-        });
+        <div style="text-align: center; font-size: 10px; color: #555; margin: 5px 0;">- OR INDIVIDUAL FILES -</div>
+        
+        <label>Custom Char PNG</label>
+        <input type="file" id="char-img-up" accept="image/png">
+        <label>Custom Char XML</label>
+        <input type="file" id="char-xml-up" accept="text/xml">
+        <label>Custom Char Offsets (.json)</label>
+        <input type="file" id="char-json-up" accept=".json">
+    </div>
 
-        // FIXED: Scaling using native image aspect ratio to stop cuts
-        if (drawNewgroundsLogo && assets.ngImage.complete && assets.ngImage.width > 0) {
-            let maxW = 450;
-            let scaleRatio = maxW / assets.ngImage.width;
-            if(scaleRatio > 1) scaleRatio = 1;
-            
-            let displayW = assets.ngImage.width * scaleRatio;
-            let displayH = assets.ngImage.height * scaleRatio;
+    <span class="section-header">Capture</span>
+    <div class="input-group">
+        <button id="showcase-btn" class="menu-btn" style="background: var(--secondary); color: #000; font-weight: 900;">RECORD SHOWCASE</button>
+    </div>
+</div>
 
-            ctx.drawImage(
-                assets.ngImage, 
-                canvas.width / 2 - (displayW / 2), 
-                startY + (currentText.length * 75) + 20, 
-                displayW, 
-                displayH
-            );
-        }
-    } 
-    else if (currentState === STATES.TITLE_SCREEN) {
-        // Grid BG
-        ctx.fillStyle = '#1f0033';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#39005c';
-        for (let i = 0; i < canvas.width + 100; i += 100) {
-            ctx.fillRect(i + (dareBgOffset % 100), 0, 20, canvas.height);
-        }
+<div id="main-stage">
+    <div id="start-screen" class="overlay">
+        <button id="start-btn" class="btn-start" disabled>AWAITING ASSETS</button>
+        <p style="color: #888; margin-top: 15px; font-family: monospace;">[SPACE] Start • [R] Restart</p>
+    </div>
+    <div id="caption-container">
+        <span id="caption-text"></span>
+    </div>
+    <canvas id="game"></canvas>
+</div>
 
-        // FIXED: Corrected position translation via frameX/frameY offsets
-        ctx.save();
-        // Base coordinate placement for the center of the logo sequence
-        ctx.translate(canvas.width / 2 - 100, canvas.height / 2 - 100);
-        ctx.scale(logoScale, logoScale);
+<div id="toast">Ready!</div>
 
-        if (assets.logoImage.complete && assets.logoFrames.length > 0) {
-            const frame = assets.logoFrames[currentFrameIndex];
-            
-            // Subtracting the structural frame layout padding keeps the sprite stuck in place
-            ctx.drawImage(
-                assets.logoImage,
-                frame.x, frame.y, frame.width, frame.height,
-                -frame.frameX, -frame.frameY, frame.width, frame.height
-            );
-        } else {
-            ctx.fillStyle = '#FFF100';
-            ctx.font = 'bold 95px "Phantommuff", sans-serif';
-            ctx.fillText("PULSE ENGINE", 0, 0);
-        }
-        ctx.restore();
-
-        ctx.font = '42px "Phantommuff", sans-serif';
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillText("CLICK or PRESS ENTER to start", canvas.width / 2, canvas.height - 110);
-    }
-}
-
-function gameLoop(currentTime) {
-    update(currentTime);
-    draw();
-    requestAnimationFrame(gameLoop);
-}
-
-function advanceScreen() {
-    if (currentState === STATES.INTRO) {
-        currentState = STATES.TITLE_SCREEN;
-    }
-}
-
-window.addEventListener('keydown', (e) => { if (e.key === 'Enter') advanceScreen(); });
-canvas.addEventListener('click', advanceScreen);
-
-preloadAssets();
-requestAnimationFrame(gameLoop);
-</script>
+<!-- ENGINE MODULAR LOGIC PIPELINE -->
+<script src="gameloop.js"></script>
+<script src="sidebar.js"></script>
 
 </body>
 </html>
